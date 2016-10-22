@@ -1,0 +1,35 @@
+    ____       _      ____    ____                 U _____ u   ____      _  __
+  U|  _"\ uU  /"\  u / __"| u/ __"| u  __        __\| ___"|/U |  _"\ u  |"|/ /
+  \| |_) |/ \/ _ \/ <\___ \/<\___ \/   \"\      /"/ |  _|"   \| |_) |/  | ' /
+   |  __/   / ___ \  u___) | u___) |   /\ \ /\ / /\ | |___    |  _ <  U/| . \\u
+   |_|     /_/   \_\ |____/>>|____/>> U  \ V  V /  U|_____|   |_| \_\   |_|\_\
+   ||>>_    \\    >>  )(  (__))(  (__).-,_\ /\ /_,-.<<   >>   //   \\_,-,>> \\,-.
+  (__)__)  (__)  (__)(__)    (__)      \_)-'  '-(_/(__) (__) (__)  (__)\.)   (_/
+
+  "A cryptographically secure password storage web-utility with distributed consensus using tendermint"
+
+USAGE
+
+ Currently, all user input is provided through the URL.
+ Within the examples HTTP calls, within the example URLs
+ the following variables are described as follows:
+ 	master_username - The master username that is non-retrievable
+      master_password - The master password that is non-retrievable
+      identifier - a retrievable unique identifier for a saved password
+      savedpassword - a retrievable saved password associated with an identifier
+
+ EXAMPLES:
+
+ writing a new record to the system:
+	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
+
+ reading list of identifiers of all the saved passwords for a given master-username/master-password
+	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
+
+ reading a saved password for a given master-username/master-password/identifier
+	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
+
+ deleting a saved password/identifier for a given master-username/master-password/identifier
+	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
+
+
