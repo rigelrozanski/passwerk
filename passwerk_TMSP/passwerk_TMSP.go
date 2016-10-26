@@ -46,6 +46,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -98,6 +99,12 @@ func (app *PasswerkApplication) SetOption(key string, value string) (log string)
 
 //Because the tx is saved in the mempool, all tx items passed to AppendTx have already been Hashed/Encrypted
 func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
+
+	//perform a CheckTx to prevent tx errors
+	checkTxResult := CheckTx(tx)
+	if checkTxResult.IsErr() {
+		return CheckTxResult
+	}
 
 	//the Merkle tree is simply set to pair of information: index int // tx string
 	app.state.Set([]byte(strconv.Itoa(app.state.Size())), tx)
@@ -212,167 +219,163 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 	urlString := r.URL.Path[1:]
 	urlStringSplit := strings.Split(urlString, `/`)
 
-	if len(urlStringSplit) >= 3 {
+	speachBubble := "i h8 myslf" //speach bubble text for the ASCII assailant
 
-		notSelected := "<notSelected>" //text indicating that a piece of URL input has not been submitted
-		speachBubble := "i h8 myslf"   //speach bubble text for the ASCII assailant
-		idNameList := ""               //list of all the stored records which will be output if requested by the user (reading_IdNames)
-		URL_optionText := notSelected  //1st URL section - <manditory>  indicates the user write mode
-		URL_username := notSelected    //2nd URL section - <manditory> master username to be read or written from
-		URL_password := notSelected    //3rd URL section - <manditory> master password to be read or written with
-		URL_cIdName := notSelected     //4th URL section - <optional> cipherable indicator name for the password
-		URL_cPassword := notSelected   //5th URL section - <optional> cipherable password to be stored
+	if len(urlStringSplit) < 3 {
+		UIoutput = UIoutput("", "", "", speachBubble, "") //<sloppy code> should provide some indicator to the user as to what the problem is
+		fmt.Fprintf(w, UIoutput)
+		return
+	}
 
-		//--------------------------
-		//  reading inputs from URL
-		//--------------------------
+	notSelected := "<notSelected>" //text indicating that a piece of URL input has not been submitted
+	idNameList := ""               //list of all the stored records which will be output if requested by the user (reading_IdNames)
+	URL_optionText := notSelected  //1st URL section - <manditory>  indicates the user write mode
+	URL_username := notSelected    //2nd URL section - <manditory> master username to be read or written from
+	URL_password := notSelected    //3rd URL section - <manditory> master password to be read or written with
+	URL_cIdName := notSelected     //4th URL section - <optional> cipherable indicator name for the password
+	URL_cPassword := notSelected   //5th URL section - <optional> cipherable password to be stored
 
-		for i := 0; i < len(urlStringSplit); i++ {
-			switch i {
-			case 0:
-				URL_optionText = urlStringSplit[i]
-			case 1:
-				URL_username = urlStringSplit[i]
-			case 2:
-				URL_password = urlStringSplit[i]
-			case 3:
-				URL_cIdName = urlStringSplit[i]
-			case 4:
-				URL_cPassword = urlStringSplit[i]
-			}
+	//  reading inputs from URL
+	URL_optionText = urlStringSplit[0]
+	URL_username = urlStringSplit[1]
+	URL_password = urlStringSplit[2]
+	URL_cIdName = urlStringSplit[3]
+	URL_cPassword = urlStringSplit[4]
+
+	//These two strings generated the hashes which are used for encryption and decryption of passwords
+	//<sloppy code> is there maybe a more secure encryption method here?
+	HashInput_idNameEncryption := URL_username + URL_password
+	HashInput_storedPasswordEncryption := URL_cIdName + URL_password + URL_username
+
+	var operationalOption string
+
+	switch URL_optionText {
+	case "r":
+		operationalOption = "reading_IdNames"
+		if URL_cIdName != notSelected {
+			operationalOption = "reading_Password"
 		}
-
-		//These two strings generated the hashes which are used for encryption and decryption of passwords
-		//<sloppy code> is there maybe a more secure encryption method here?
-		HashInput_idNameEncryption := URL_username + URL_password
-		HashInput_storedPasswordEncryption := URL_cIdName + URL_password + URL_username
-
-		var operationalOption string
-
-		switch URL_optionText {
-		case "r":
-			operationalOption = "reading_IdNames"
-			if URL_cIdName != notSelected {
-				operationalOption = "reading_Password"
-			}
-			if URL_username == notSelected ||
-				URL_password == notSelected {
-				operationalOption = "ERROR_General"
-			}
-
-		case "w":
-			operationalOption = "writing"
-			if URL_cIdName == notSelected ||
-				URL_username == notSelected ||
-				URL_password == notSelected {
-				operationalOption = "ERROR_General"
-			}
-
-		case "d":
-			operationalOption = "deleting"
-			if URL_cIdName == notSelected ||
-				URL_username == notSelected ||
-				URL_password == notSelected {
-				operationalOption = "ERROR_General"
-			}
-
-		default:
+		if URL_username == notSelected ||
+			URL_password == notSelected {
 			operationalOption = "ERROR_General"
 		}
 
-		//performing authentication (don't need to authenicate for writing passwords)
-		if operationalOption != "writing" && authenicate(URL_username, URL_password) == false {
-			operationalOption = "ERROR_Authentication"
+	case "w":
+		operationalOption = "writing"
+		if URL_cIdName == notSelected ||
+			URL_username == notSelected ||
+			URL_password == notSelected {
+			operationalOption = "ERROR_General"
 		}
 
-		// performing operation
-		switch operationalOption {
-		case "reading_IdNames": //  <sloppy code> consider moving this section to query
+	case "d":
+		operationalOption = "deleting"
+		if URL_cIdName == notSelected ||
+			URL_username == notSelected ||
+			URL_password == notSelected {
+			operationalOption = "ERROR_General"
+		}
 
-			idNameListArray := getIdNameList(HashInput_idNameEncryption, URL_username, URL_password)
-			speachBubble = "...psst down at my toes"
+	default:
+		operationalOption = "ERROR_General"
+	}
 
-			for i := 0; i < len(idNameListArray); i++ {
-				if idNameListArray[i] == "" {
-					break
-				}
-				idNameList = idNameList + `
-						` + idNameListArray[i]
+	//performing authentication (don't need to authenicate for writing passwords)
+	if operationalOption != "writing" && authenicate(URL_username, URL_password) == false {
+		operationalOption = "ERROR_Authentication"
+	}
+
+	// performing operation
+	switch operationalOption {
+	case "reading_IdNames": //  <sloppy code> consider moving this section to query
+
+		idNameListArray := getIdNameList(HashInput_idNameEncryption, URL_username, URL_password)
+		speachBubble = "...psst down at my toes"
+
+		for i := 0; i < len(idNameListArray); i++ {
+			if idNameListArray[i] == "" {
+				break
 			}
+			idNameList = idNameList + "\n" + idNameListArray[i]
+		}
 
-		case "reading_Password": // <sloppy code> consider moving this section to query
+	case "reading_Password": // <sloppy code> consider moving this section to query
 
-			operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
-				getHashedHexString(URL_password),
-				HashInput_idNameEncryption, URL_cIdName)
+		operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
+			getHashedHexString(URL_password),
+			HashInput_idNameEncryption, URL_cIdName)
 
-			if operatingIndex >= 0 {
-				speachBubble, _ = readDecryptedFromList(HashInput_storedPasswordEncryption, 3, operatingIndex) //<sloppy code> add error handling
-			} else {
-				operationalOption = "ERROR_InvalidIdName"
-			}
+		if operatingIndex >= 0 {
+			speachBubble, _ = readDecryptedFromList(HashInput_storedPasswordEncryption, 3, operatingIndex) //<sloppy code> add error handling
+		} else {
+			operationalOption = "ERROR_InvalidIdName"
+		}
 
-		case "deleting":
-			//determine the operation index
-			operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
-				getHashedHexString(URL_password),
-				HashInput_idNameEncryption, URL_cIdName)
-			if operatingIndex >= 0 {
+	case "deleting":
+		//determine the operation index
+		operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
+			getHashedHexString(URL_password),
+			HashInput_idNameEncryption, URL_cIdName)
+		if operatingIndex >= 0 {
 
-				//create he tx then broadcast
-				tx2broadcast := timeStampString()
-				tx2broadcast += "/" + operationalOption
-				tx2broadcast += "/" + strconv.Itoa(operatingIndex)
-				broadcastTx_fromString(tx2broadcast)
-
-				speachBubble = "*Chuckles* - nvr heard of no " + URL_cIdName + " before"
-			} else {
-				operationalOption = "ERROR_InvalidIdName"
-			}
-
-		case "writing":
-			//before writing, any duplicate records must first be deleted
-			//determine the operation index
-			operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
-				getHashedHexString(URL_password),
-				HashInput_idNameEncryption, URL_cIdName)
-			if operatingIndex >= 0 {
-				//create he tx then broadcast
-				tx2broadcast := timeStampString()
-				tx2broadcast += "/" + "deleting"
-				tx2broadcast += "/" + strconv.Itoa(operatingIndex)
-				broadcastTx_fromString(tx2broadcast)
-			}
-
-			//now write the records
 			//create he tx then broadcast
-			tx2broadcast := timeStampString()
-			tx2broadcast += "/" + operationalOption
-			tx2broadcast += "/" + getHashedHexString(URL_username)
-			tx2broadcast += "/" + getHashedHexString(URL_password)
-			tx2broadcast += "/" + getEncryptedHexString(HashInput_idNameEncryption, URL_cIdName)
-			tx2broadcast += "/" + getEncryptedHexString(HashInput_storedPasswordEncryption, URL_cPassword)
+			tx2broadcast := path.Join(timeStampString(),
+				operationalOption,
+				strconv.Itoa(operatingIndex))
 			broadcastTx_fromString(tx2broadcast)
 
-			speachBubble = "Roger That"
+			speachBubble = "*Chuckles* - nvr heard of no " + URL_cIdName + " before"
+		} else {
+			operationalOption = "ERROR_InvalidIdName"
 		}
 
-		// writing speach bubbles for any errors encounted
-		switch operationalOption {
-		case "ERROR_General": //<sloppy code> add more types of specific error outputs
-			speachBubble = "ugh... general error"
-
-		case "ERROR_Authentication":
-			speachBubble = "do i know u?"
-
-		case "ERROR_InvalidIdName":
-			speachBubble = "sry nvr heard of it </3"
+	case "writing":
+		//before writing, any duplicate records must first be deleted
+		//determine the operation index
+		operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
+			getHashedHexString(URL_password),
+			HashInput_idNameEncryption, URL_cIdName)
+		if operatingIndex >= 0 {
+			//create he tx then broadcast
+			tx2broadcast := path.Join(timeStampString(),
+				"deleting",
+				strconv.Itoa(operatingIndex))
+			broadcastTx_fromString(tx2broadcast)
 		}
 
-		//--------------------------
-		//Writing output
-		//--------------------------
-		UIoutput = "passwerk" + `
+		//now write the records
+		//create he tx then broadcast
+		tx2broadcast := path.Join(timeStampString(),
+			operationalOption,
+			getHashedHexString(URL_username),
+			getHashedHexString(URL_password),
+			getEncryptedHexString(HashInput_idNameEncryption, URL_cIdName),
+			getEncryptedHexString(HashInput_storedPasswordEncryption, URL_cPassword))
+		broadcastTx_fromString(tx2broadcast)
+
+		speachBubble = "Roger That"
+	}
+
+	// writing speach bubbles for any errors encounted
+	switch operationalOption {
+	case "ERROR_General": //<sloppy code> add more types of specific error outputs
+		speachBubble = "ugh... general error"
+
+	case "ERROR_Authentication":
+		speachBubble = "do i know u?"
+
+	case "ERROR_InvalidIdName":
+		speachBubble = "sry nvr heard of it </3"
+	}
+
+	//Writing output
+	UIoutput = UIoutput(URL_username, URL_password, URL_cIdName, speachBubble, idNameList)
+	fmt.Fprintf(w, UIoutput)
+}
+
+func UIoutput(URL_username string, URL_password string, URL_cIdName string,
+	speachBubble string, idNameList string) string {
+	return "passwerk" + `
  __________________________________________
 |                                          |
 |  u: ` + URL_username + `
@@ -398,9 +401,6 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 
 ` + idNameList
 
-	}
-
-	fmt.Fprintf(w, UIoutput)
 }
 
 func timeStampString() string {
