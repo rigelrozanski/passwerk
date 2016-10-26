@@ -1,14 +1,7 @@
-    ____       _      ____    ____                 U _____ u   ____      _  __
-  U|  _"\ uU  /"\  u / __"| u/ __"| u  __        __\| ___"|/U |  _"\ u  |"|/ /
-  \| |_) |/ \/ _ \/ <\___ \/<\___ \/   \"\      /"/ |  _|"   \| |_) |/  | ' /
-   |  __/   / ___ \  u___) | u___) |   /\ \ /\ / /\ | |___    |  _ <  U/| . \\u
-   |_|     /_/   \_\ |____/>>|____/>> U  \ V  V /  U|_____|   |_| \_\   |_|\_\
-   ||>>_    \\    >>  )(  (__))(  (__).-,_\ /\ /_,-.<<   >>   //   \\_,-,>> \\,-.
-  (__)__)  (__)  (__)(__)    (__)      \_)-'  '-(_/(__) (__) (__)  (__)\.)   (_/
+passwerk
+"A cryptographically secure password storage web-utility with distributed consensus using tendermint"
 
-  "A cryptographically secure password storage web-utility with distributed consensus using tendermint"
-
-USAGE
+ USAGE
 
  Currently, all user input is provided through the URL.
  Within the examples HTTP calls, within the example URLs
@@ -17,6 +10,7 @@ USAGE
       master_password - The master password that is non-retrievable
       identifier - a retrievable unique identifier for a saved password
       savedpassword - a retrievable saved password associated with an identifier
+
 
  EXAMPLES:
 
