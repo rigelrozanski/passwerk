@@ -101,9 +101,9 @@ func (app *PasswerkApplication) SetOption(key string, value string) (log string)
 func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 
 	//perform a CheckTx to prevent tx errors
-	checkTxResult := CheckTx(tx)
+	checkTxResult := app.CheckTx(tx)
 	if checkTxResult.IsErr() {
-		return CheckTxResult
+		return checkTxResult
 	}
 
 	//the Merkle tree is simply set to pair of information: index int // tx string
@@ -222,7 +222,7 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 	speachBubble := "i h8 myslf" //speach bubble text for the ASCII assailant
 
 	if len(urlStringSplit) < 3 {
-		UIoutput = UIoutput("", "", "", speachBubble, "") //<sloppy code> should provide some indicator to the user as to what the problem is
+		UIoutput = getUIoutput("", "", "", speachBubble, "") //<sloppy code> should provide some indicator to the user as to what the problem is
 		fmt.Fprintf(w, UIoutput)
 		return
 	}
@@ -235,12 +235,23 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 	URL_cIdName := notSelected     //4th URL section - <optional> cipherable indicator name for the password
 	URL_cPassword := notSelected   //5th URL section - <optional> cipherable password to be stored
 
-	//  reading inputs from URL
-	URL_optionText = urlStringSplit[0]
-	URL_username = urlStringSplit[1]
-	URL_password = urlStringSplit[2]
-	URL_cIdName = urlStringSplit[3]
-	URL_cPassword = urlStringSplit[4]
+	// reading inputs from URL
+	// needs to be in a for loop to check for variable length input to urlStringSplit
+	// to avoid array index out of bounds
+	for i := 0; i < len(urlStringSplit); i++ {
+		switch i {
+		case 0:
+			URL_optionText = urlStringSplit[i]
+		case 1:
+			URL_username = urlStringSplit[i]
+		case 2:
+			URL_password = urlStringSplit[i]
+		case 3:
+			URL_cIdName = urlStringSplit[i]
+		case 4:
+			URL_cPassword = urlStringSplit[i]
+		}
+	}
 
 	//These two strings generated the hashes which are used for encryption and decryption of passwords
 	//<sloppy code> is there maybe a more secure encryption method here?
@@ -339,11 +350,11 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//Writing output
-	UIoutput = UIoutput(URL_username, URL_password, URL_cIdName, speachBubble, idNameList)
+	UIoutput = getUIoutput(URL_username, URL_password, URL_cIdName, speachBubble, idNameList)
 	fmt.Fprintf(w, UIoutput)
 }
 
-func getOperationOption(notSelected string, URL_optionText string, URL_username string,
+func getOperationalOption(notSelected string, URL_optionText string, URL_username string,
 	URL_password string, URL_cIdName string, URL_cPassword string) string {
 
 	//OR equiv. - false if any are not selected
@@ -360,7 +371,7 @@ func getOperationOption(notSelected string, URL_optionText string, URL_username 
 
 	switch URL_optionText {
 	case "r":
-		if AnyAreNotSelected([]string(URL_username, URL_password)) {
+		if AnyAreNotSelected([]string{URL_username, URL_password}) {
 			return gen_ERROR
 		} else if URL_cIdName != notSelected {
 			return "reading_Password"
@@ -369,13 +380,13 @@ func getOperationOption(notSelected string, URL_optionText string, URL_username 
 		}
 
 	case "w":
-		if AnyAreNotSelected([]string(URL_cIdName, URL_cPassword, URL_username, URL_password)) {
+		if AnyAreNotSelected([]string{URL_cIdName, URL_cPassword, URL_username, URL_password}) {
 			return gen_ERROR
 		} else {
 			return "writing"
 		}
 	case "d":
-		if AnyAreNotSelected([]string(URL_cIdName, URL_username, URL_password)) {
+		if AnyAreNotSelected([]string{URL_cIdName, URL_username, URL_password}) {
 			return gen_ERROR
 		} else {
 			return "deleting"
@@ -385,7 +396,7 @@ func getOperationOption(notSelected string, URL_optionText string, URL_username 
 	}
 }
 
-func UIoutput(URL_username string, URL_password string, URL_cIdName string,
+func getUIoutput(URL_username string, URL_password string, URL_cIdName string,
 	speachBubble string, idNameList string) string {
 	return "passwerk" + `
  __________________________________________
