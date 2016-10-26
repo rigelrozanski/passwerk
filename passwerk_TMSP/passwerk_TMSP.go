@@ -247,38 +247,8 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 	HashInput_idNameEncryption := URL_username + URL_password
 	HashInput_storedPasswordEncryption := URL_cIdName + URL_password + URL_username
 
-	var operationalOption string
-
-	switch URL_optionText {
-	case "r":
-		operationalOption = "reading_IdNames"
-		if URL_cIdName != notSelected {
-			operationalOption = "reading_Password"
-		}
-		if URL_username == notSelected ||
-			URL_password == notSelected {
-			operationalOption = "ERROR_General"
-		}
-
-	case "w":
-		operationalOption = "writing"
-		if URL_cIdName == notSelected ||
-			URL_username == notSelected ||
-			URL_password == notSelected {
-			operationalOption = "ERROR_General"
-		}
-
-	case "d":
-		operationalOption = "deleting"
-		if URL_cIdName == notSelected ||
-			URL_username == notSelected ||
-			URL_password == notSelected {
-			operationalOption = "ERROR_General"
-		}
-
-	default:
-		operationalOption = "ERROR_General"
-	}
+	operationalOption := getOperationalOption(notSelected, URL_optionText, URL_username,
+		URL_password, URL_cIdName, URL_cPassword)
 
 	//performing authentication (don't need to authenicate for writing passwords)
 	if operationalOption != "writing" && authenicate(URL_username, URL_password) == false {
@@ -371,6 +341,48 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 	//Writing output
 	UIoutput = UIoutput(URL_username, URL_password, URL_cIdName, speachBubble, idNameList)
 	fmt.Fprintf(w, UIoutput)
+}
+
+func getOperationOption(notSelected string, URL_optionText string, URL_username string,
+	URL_password string, URL_cIdName string, URL_cPassword string) string {
+
+	//OR equiv. - false if any are not selected
+	AnyAreNotSelected := func(inputs []string) bool {
+		for i := 0; i < len(inputs); i++ {
+			if inputs[i] == notSelected {
+				return true
+			}
+		}
+		return false
+	}
+
+	gen_ERROR := "ERROR_General"
+
+	switch URL_optionText {
+	case "r":
+		if AnyAreNotSelected([]string(URL_username, URL_password)) {
+			return gen_ERROR
+		} else if URL_cIdName != notSelected {
+			return "reading_Password"
+		} else {
+			return "reading_IdNames"
+		}
+
+	case "w":
+		if AnyAreNotSelected([]string(URL_cIdName, URL_cPassword, URL_username, URL_password)) {
+			return gen_ERROR
+		} else {
+			return "writing"
+		}
+	case "d":
+		if AnyAreNotSelected([]string(URL_cIdName, URL_username, URL_password)) {
+			return gen_ERROR
+		} else {
+			return "deleting"
+		}
+	default:
+		return gen_ERROR
+	}
 }
 
 func UIoutput(URL_username string, URL_password string, URL_cIdName string,
