@@ -56,34 +56,33 @@ import (
 	"github.com/tendermint/tmsp/types"
 )
 
-//<incomplete code> should be reprogrammed to not include a maximum <becomes irrelavant when replaced with a merkle-tree structure>
-const maxViewableSavedPasswords int = 1000 //maximum amount of stored records <becomes irrelavant when replaced with merkle-tree structure>
 const port_passwerkUI string = "8080"
 const port_tendermint string = "46657"
 
-// Global Memory Storage Bank <incomplete code> replace with merkle-tree structure instread of array
-//[1][] - Hashed Username
-//[2][] - Hashed Password
-//[3][] - Hash cipherable IdName
-//[4][] - Hash cipherable password
-var hashPasswordLists [4][maxViewableSavedPasswords]string
-
 type PasswerkApplication struct {
-	//currently the merkle-tree stores a list of transactions,
-	// this should be upgraded to store the information
-	// currently held in hashPasswordLists
+	// The state holds:
+	//
+	//   for each master username/password
+	//      map record:  key - hashed master-username/master-password
+	//                   values - list of encrypted cIdNames
+	//   for each saved record
+	//      main values: key - hashed master-usr/master-pwd/cIdName
+	//                   values - encrypted cPassword
+	//
 	state merkle.Tree
 }
 
 func NewPasswerkApplication() *PasswerkApplication {
-	go httpListener()
-	state := merkle.NewIAVLTree(0, nil)
 
-	return &PasswerkApplication{state: state}
+	state := merkle.NewIAVLTree(0, nil)
+	app := &PasswerkApplication{state: state}
+	go httpListener(app)
+
+	return app
 }
 
-func httpListener() {
-	http.HandleFunc("/", inputHandler)
+func httpListener(app *PasswerkApplication) {
+	http.HandleFunc("/", app.UI_inputHandler)
 	http.ListenAndServe(":"+port_passwerkUI, nil)
 }
 
@@ -106,9 +105,6 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 		return checkTxResult
 	}
 
-	//the Merkle tree is simply set to pair of information: index int // tx string
-	app.state.Set([]byte(strconv.Itoa(app.state.Size())), tx)
-
 	//seperate the tx into all the parts to be written
 	parts := strings.Split(string(tx), "/")
 
@@ -117,24 +113,21 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 
 	switch operationalOption {
 	case "writing":
-
-		username_HashedHex := parts[2]
-		password_HashedHex := parts[3]
-		cIdName_Encrypted := parts[4]
-		cPassword_Encrypted := parts[5]
-
-		//write the actual entries
-		operatingIndex := getfirstEmptySpaceIndex()
-		hashPasswordLists[0][operatingIndex] = username_HashedHex
-		hashPasswordLists[1][operatingIndex] = password_HashedHex
-		hashPasswordLists[2][operatingIndex] = cIdName_Encrypted
-		hashPasswordLists[3][operatingIndex] = cPassword_Encrypted
+		tree_NewRecord(
+			app.state,
+			parts[2], //username_Hashed
+			parts[3], //password_Hashed
+			parts[4], //cIdName_Hashed
+			parts[5], //cIdName_Encrypted
+			parts[6]) //cPassword_Encrypted
 	case "deleting":
-
-		operatingIndex, _ := strconv.Atoi(parts[2]) //<sloppy code> add error checking
-		for i := 0; i < 4; i++ {
-			hashPasswordLists[i][operatingIndex] = ""
-		}
+		mapIndex2Delete, _ := strconv.Atoi(parts[5])
+		tree_DeleteRecord(
+			app.state,
+			parts[2],        //username_Hashed
+			parts[3],        //password_Hashed
+			parts[4],        //cIdName_Hashed
+			mapIndex2Delete) //mapIndex2Delete
 	}
 
 	return types.OK
@@ -171,12 +164,17 @@ func (app *PasswerkApplication) CheckTx(tx []byte) types.Result {
 
 	switch operationalOption {
 	case "writing":
-		if len(parts) < 6 {
+		if len(parts) < 7 {
 			return badReturn("Invalid number of TX parts")
 		}
 	case "deleting":
-		if len(parts) < 3 {
+		if len(parts) < 7 { //note that the length for deleting and writing just happens to be the same, may change in future passwerk
 			return badReturn("Invalid number of TX parts")
+		}
+
+		//check to make sure that system state hasn't changed
+		if parts[3] != bytes2HexString(app.state.Hash()) { //here parts[3] has passed on the system state from the broadcast
+			return badReturn("System state has changed")
 		}
 	default:
 		return badReturn("Invalid operational option")
@@ -213,7 +211,7 @@ func broadcastTx_fromString(tx string) string {
 }
 
 //function handles http requests from the passwerk local host (not tendermint local host)
-func inputHandler(w http.ResponseWriter, r *http.Request) {
+func (app *PasswerkApplication) UI_inputHandler(w http.ResponseWriter, r *http.Request) {
 
 	UIoutput := "" //variable which holds the final output to be written by the program
 	urlString := r.URL.Path[1:]
@@ -255,14 +253,15 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 
 	//These two strings generated the hashes which are used for encryption and decryption of passwords
 	//<sloppy code> is there maybe a more secure encryption method here?
-	HashInput_idNameEncryption := URL_username + URL_password
-	HashInput_storedPasswordEncryption := URL_cIdName + URL_password + URL_username
+	HashInput_cIdNameEncryption := URL_username + URL_password
+	HashInput_cPasswordEncryption := URL_cIdName + URL_password + URL_username
 
 	operationalOption := getOperationalOption(notSelected, URL_optionText, URL_username,
 		URL_password, URL_cIdName, URL_cPassword)
 
 	//performing authentication (don't need to authenicate for writing passwords)
-	if operationalOption != "writing" && authenicate(URL_username, URL_password) == false {
+	if operationalOption != "writing" &&
+		tree_Authenticate(app.state, getHashedHexString(URL_username), getHashedHexString(URL_password)) == false {
 		operationalOption = "ERROR_Authentication"
 	}
 
@@ -270,39 +269,51 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 	switch operationalOption {
 	case "reading_IdNames": //  <sloppy code> consider moving this section to query
 
-		idNameListArray := getIdNameList(HashInput_idNameEncryption, URL_username, URL_password)
+		idNameListArray := tree_Retrieve_cIdNames(
+			app.state,
+			getHashedHexString(URL_username),
+			getHashedHexString(URL_password),
+			HashInput_cIdNameEncryption)
 		speachBubble = "...psst down at my toes"
 
 		for i := 0; i < len(idNameListArray); i++ {
-			if idNameListArray[i] == "" {
-				break
-			}
 			idNameList = idNameList + "\n" + idNameListArray[i]
 		}
 
 	case "reading_Password": // <sloppy code> consider moving this section to query
 
-		operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
+		cPassword_decrypted := tree_Retrieve_cPassword(
+			app.state,
+			getHashedHexString(URL_username),
 			getHashedHexString(URL_password),
-			HashInput_idNameEncryption, URL_cIdName)
+			getHashedHexString(URL_cIdName),
+			HashInput_cPasswordEncryption)
 
-		if operatingIndex >= 0 {
-			speachBubble, _ = readDecryptedFromList(HashInput_storedPasswordEncryption, 3, operatingIndex) //<sloppy code> add error handling
+		if cPassword_decrypted != "" {
+			speachBubble = cPassword_decrypted
 		} else {
 			operationalOption = "ERROR_InvalidIdName"
 		}
 
 	case "deleting":
 		//determine the operation index
-		operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
+		mapIndex, mapHash := tree_GetMapValueIndex(
+			app.state,
+			getHashedHexString(URL_username),
 			getHashedHexString(URL_password),
-			HashInput_idNameEncryption, URL_cIdName)
-		if operatingIndex >= 0 {
+			URL_cIdName,
+			HashInput_cIdNameEncryption)
+		if mapIndex >= 0 {
 
 			//create he tx then broadcast
-			tx2broadcast := path.Join(timeStampString(),
+			tx2broadcast := path.Join(
+				timeStampString(),
 				operationalOption,
-				strconv.Itoa(operatingIndex))
+				getHashedHexString(URL_username),
+				getHashedHexString(URL_password),
+				getHashedHexString(URL_cIdName),
+				strconv.Itoa(mapIndex),
+				mapHash)
 			broadcastTx_fromString(tx2broadcast)
 
 			speachBubble = "*Chuckles* - nvr heard of no " + URL_cIdName + " before"
@@ -313,25 +324,36 @@ func inputHandler(w http.ResponseWriter, r *http.Request) {
 	case "writing":
 		//before writing, any duplicate records must first be deleted
 		//determine the operation index
-		operatingIndex := getIdNameIndex(getHashedHexString(URL_username),
+		mapIndex, mapHash := tree_GetMapValueIndex(
+			app.state,
+			getHashedHexString(URL_username),
 			getHashedHexString(URL_password),
-			HashInput_idNameEncryption, URL_cIdName)
-		if operatingIndex >= 0 {
+			URL_cIdName,
+			HashInput_cIdNameEncryption)
+		if mapIndex >= 0 {
+
 			//create he tx then broadcast
-			tx2broadcast := path.Join(timeStampString(),
+			tx2broadcast := path.Join(
+				timeStampString(),
 				"deleting",
-				strconv.Itoa(operatingIndex))
+				getHashedHexString(URL_username),
+				getHashedHexString(URL_password),
+				getHashedHexString(URL_cIdName),
+				strconv.Itoa(mapIndex),
+				mapHash)
 			broadcastTx_fromString(tx2broadcast)
 		}
 
 		//now write the records
 		//create he tx then broadcast
-		tx2broadcast := path.Join(timeStampString(),
+		tx2broadcast := path.Join(
+			timeStampString(),
 			operationalOption,
 			getHashedHexString(URL_username),
 			getHashedHexString(URL_password),
-			getEncryptedHexString(HashInput_idNameEncryption, URL_cIdName),
-			getEncryptedHexString(HashInput_storedPasswordEncryption, URL_cPassword))
+			getHashedHexString(URL_cIdName),
+			getEncryptedHexString(HashInput_cIdNameEncryption, URL_cIdName),
+			getEncryptedHexString(HashInput_cPasswordEncryption, URL_cPassword))
 		broadcastTx_fromString(tx2broadcast)
 
 		speachBubble = "Roger That"
@@ -430,88 +452,147 @@ func timeStampString() string {
 	return time.Now().Format(time.StampMicro)
 }
 
-//does the username and password exist somewhere else within the hashPassowordLists array?
-func authenicate(username string, password string) bool {
-
-	auth := false
-	for i := 0; i < len(hashPasswordLists[0]); i++ {
-
-		if getHashedHexString(username) == hashPasswordLists[0][i] &&
-			getHashedHexString(password) == hashPasswordLists[1][i] {
-			auth = true
-			break
-		}
-	}
-
-	return auth
+func tree_Authenticate(state merkle.Tree, username_Hashed string, password_Hashed string) bool {
+	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+	return state.Has(mapKey)
 }
 
-//determines the first unused space within the array
-//once switched to database storage, this method would become irrelavant
-func getfirstEmptySpaceIndex() int {
-	firstEmptySpaceIndex := -1
+func tree_Retrieve_cIdNames(state merkle.Tree, username_Hashed string, password_Hashed string,
+	hashInput_cIdNameEncryption string) (cIdNames_Encrypted []string) {
 
-	for i := 0; i < len(hashPasswordLists[0]); i++ {
-		if hashPasswordLists[0][i] == "" {
-			firstEmptySpaceIndex = i
-			break
-		}
-	}
+	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+	_, mapValues, exists := state.Get(mapKey)
+	if exists {
 
-	return firstEmptySpaceIndex
-}
+		//get the encrypted cIdNames
+		cIdNames := strings.Split(string(mapValues), "/")
 
-//gets the array index in hashPasswordLists containing the matching record for hashed username, password, and cIdName
-func getIdNameIndex(username_HashedHex string, password_HashedHex string, hashInput_cIdNameEncryption string, cIdName string) int {
-
-	outputIndex := -1
-
-	for i := 0; i < len(hashPasswordLists[0]); i++ {
-		cIdName_decrypted, err := readDecryptedFromList(hashInput_cIdNameEncryption, 2, i)
-		if err == nil {
-			if username_HashedHex == hashPasswordLists[0][i] &&
-				password_HashedHex == hashPasswordLists[1][i] &&
-				cIdName == cIdName_decrypted {
-
-				outputIndex = i
+		//decrypt the cIdNames
+		for i := 0; i < len(cIdNames); i++ {
+			if len(cIdNames[i]) < 1 {
+				continue
 			}
+			cIdNames[i], _ = readDecrypted(hashInput_cIdNameEncryption, cIdNames[i])
 		}
+		return cIdNames
+	} else {
+		return nil
 	}
-	return outputIndex
 }
 
-//gets the decrypted list of all of the cIdName records contained under username and password provided
-func getIdNameList(hashInput string, username string, password string) [maxViewableSavedPasswords]string {
-	var outputString [maxViewableSavedPasswords]string
+func tree_Retrieve_cPassword(state merkle.Tree, username_Hashed string, password_Hashed string, cIdName_Hashed string,
+	hashInput_cPasswordEncryption string) string {
 
-	var workingOutputIndex int = 0
-	for i := 0; i < len(hashPasswordLists[0]); i++ {
-		if getHashedHexString(username) == hashPasswordLists[0][i] &&
-			getHashedHexString(password) == hashPasswordLists[1][i] {
+	cPasswordKey := []byte(path.Join(username_Hashed, password_Hashed, cIdName_Hashed))
+	_, cPassword_Encrypted, exists := state.Get(cPasswordKey)
+	if exists {
+		cPassword, _ := readDecrypted(hashInput_cPasswordEncryption, string(cPassword_Encrypted))
+		return cPassword
+	} else {
+		return ""
+	}
+}
 
-			var err error
-			outputString[workingOutputIndex], err = readDecryptedFromList(hashInput, 2, i)
-			if err != nil {
-				break
-			}
+func tree_DeleteRecord(state merkle.Tree, username_Hashed string, password_Hashed string, cIdName_Hashed string,
+	map_Index2Remove int) (success bool) {
 
-			workingOutputIndex += 1
+	//verify the record exists
+	merkleRecordKey := []byte(path.Join(username_Hashed, password_Hashed, cIdName_Hashed))
+	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+	_, mapValues, mapExists := state.Get(mapKey)
+
+	if state.Has(merkleRecordKey) == false ||
+		mapExists == false {
+		return false
+	}
+
+	//delete the main record from the merkle tree
+	_, successfulRemove := state.Remove(merkleRecordKey)
+	if successfulRemove == false {
+		return false
+	}
+
+	//delete the index from the map
+	oldMapValuesSplit := strings.Split(string(mapValues), "/")
+	mapValuesNew := "/" //the map always starts and ends with a backslash always
+
+	//recomplile the masterValues to masterValuesNew, skipping the removed index
+	for i := 0; i < len(oldMapValuesSplit); i++ {
+		if len(oldMapValuesSplit[i]) < 1 || i == map_Index2Remove { //<sloppy code> this prevents users from saving a password of length zero, should account for this
+			continue
+		}
+		mapValuesNew += oldMapValuesSplit[i] + "/"
+		//remove record from master list and merkle tree
+	}
+
+	//delete the map too if there are no more values within it!
+	_, mapValues, _ = state.Get(mapKey)
+	if len(string(mapValues)) < 2 {
+		state.Remove(mapKey)
+	}
+
+	return true
+}
+
+func tree_GetMapValueIndex(state merkle.Tree, username_Hashed string, password_Hashed string, cIdName_Unencrypted string,
+	hashInput_cIdNameEncryption string) (mapIndex int, mapHash string) {
+
+	outIndex := -1
+
+	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+	_, mapValues, exists := state.Get(mapKey)
+	if exists == false {
+		return outIndex, bytes2HexString(state.Hash())
+	}
+
+	//get the encrypted cIdNames
+	cIdNames := strings.Split(string(mapValues), "/")
+
+	//determine the correct index
+	for i := 0; i < len(cIdNames); i++ {
+		if len(cIdNames[i]) < 1 {
+			continue
+		}
+		temp_cIdName_Decrypted, _ := readDecrypted(hashInput_cIdNameEncryption, cIdNames[i])
+
+		//remove record from master list and merkle tree
+		if cIdName_Unencrypted == temp_cIdName_Decrypted {
+			outIndex = i
 		}
 	}
-	return outputString
+
+	return outIndex, bytes2HexString(state.Hash())
+}
+
+//must delete any records with the same cIdName before adding a new record
+func tree_NewRecord(state merkle.Tree, username_Hashed string, password_Hashed string, cIdName_Hashed string,
+	cIdName_Encrypted string, cPassword_Encrypted string) {
+
+	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+
+	//get the newIndex and add it to the master list/create the master list if doesn't exist
+	if state.Has(mapKey) {
+		_, mapValues, _ := state.Get(mapKey)
+		state.Set(mapKey, []byte(string(mapValues)+cIdName_Encrypted+"/"))
+	} else {
+		state.Set([]byte(mapKey), []byte("/"+cIdName_Encrypted+"/"))
+	}
+
+	//create the new record in the tree
+	insertKey := []byte(path.Join(username_Hashed, password_Hashed, cIdName_Hashed))
+	insertValues := []byte(cPassword_Encrypted)
+	state.Set(insertKey, insertValues)
 }
 
 //read and decrypt from the hashPasswordList
-func readDecryptedFromList(hashInput string, listCol int, listRow int) (decryptedString string, err error) {
+func readDecrypted(hashInput string, encryptedString string) (decryptedString string, err error) {
 
 	// The key length must be 32, 24, or 16  bytes
 	key := getHash(hashInput)
 	var ciphertext, decryptedByte []byte
 
-	ciphertext, err = hex.DecodeString(hashPasswordLists[listCol][listRow])
-
+	ciphertext, err = hex.DecodeString(encryptedString)
 	decryptedByte, err = decrypt(key, ciphertext)
-
 	decryptedString = string(decryptedByte[:])
 
 	return
@@ -532,6 +613,10 @@ func getEncryptedHexString(hashInput string, unencryptedString string) string {
 	return ""
 }
 
+func bytes2HexString(dataInput []byte) string {
+	return hex.EncodeToString(dataInput[:])
+}
+
 //return datainput as a hex string after it has been hashed
 func getHashedHexString(dataInput string) string {
 
@@ -539,7 +624,7 @@ func getHashedHexString(dataInput string) string {
 	hashBytes := getHash(dataInput)
 
 	//encoding to a hex string, within data the [x]byte array sliced to []byte (shorthand for h[0:len(h)])
-	hashHexString := hex.EncodeToString(hashBytes[:])
+	hashHexString := bytes2HexString(hashBytes)
 	return hashHexString
 }
 
