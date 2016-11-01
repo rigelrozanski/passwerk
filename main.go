@@ -17,7 +17,7 @@ import (
 
 	. "github.com/tendermint/go-common"
 	"github.com/tendermint/tmsp/server"
-	"passwerk/passwerk_TMSP"
+	"passwerk/passwerkTMSP"
 )
 
 func main() {
@@ -27,7 +27,7 @@ func main() {
 	flag.Parse()
 
 	// Start the listener
-	_, err := server.NewServer(*addrPtr, *tmspPtr, passwerk_TMSP.NewPasswerkApplication())
+	_, err := server.NewServer(*addrPtr, *tmspPtr, passwerkTMSP.NewPasswerkApplication())
 	if err != nil {
 		Exit(err.Error())
 	}

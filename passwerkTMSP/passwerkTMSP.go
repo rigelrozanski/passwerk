@@ -33,7 +33,7 @@
 //	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
 //
 
-package passwerk_TMSP
+package passwerkTMSP
 
 import (
 	"crypto/aes"
@@ -47,7 +47,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"path"
-	"strconv"
+	//"strconv"
 	"strings"
 	"time"
 
@@ -56,8 +56,8 @@ import (
 	"github.com/tendermint/tmsp/types"
 )
 
-const port_passwerkUI string = "8080"
-const port_tendermint string = "46657"
+const portPasswerkUI string = "8080"
+const portTendermint string = "46657"
 
 type PasswerkApplication struct {
 	// The state holds:
@@ -82,8 +82,8 @@ func NewPasswerkApplication() *PasswerkApplication {
 }
 
 func httpListener(app *PasswerkApplication) {
-	http.HandleFunc("/", app.UI_inputHandler)
-	http.ListenAndServe(":"+port_passwerkUI, nil)
+	http.HandleFunc("/", app.UIInputHandler)
+	http.ListenAndServe(":"+portPasswerkUI, nil)
 }
 
 //returns the size of the tx
@@ -92,7 +92,7 @@ func (app *PasswerkApplication) Info() string {
 }
 
 //SetOption is currently unsupported
-func (app *PasswerkApplication) SetOption(key string, value string) (log string) {
+func (app *PasswerkApplication) SetOption(key, value string) (log string) {
 	return ""
 }
 
@@ -113,21 +113,20 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 
 	switch operationalOption {
 	case "writing":
-		tree_NewRecord(
+		treeNewRecord(
 			app.state,
-			parts[2], //username_Hashed
-			parts[3], //password_Hashed
-			parts[4], //cIdName_Hashed
-			parts[5], //cIdName_Encrypted
-			parts[6]) //cPassword_Encrypted
+			parts[2], //usernameHashed
+			parts[3], //passwordashed
+			parts[4], //cIdNameHashed
+			parts[5], //cIdNameEncrypted
+			parts[6]) //cPasswordEncrypted
 	case "deleting":
-		mapIndex2Delete, _ := strconv.Atoi(parts[5])
-		tree_DeleteRecord(
+		treeDeleteRecord(
 			app.state,
-			parts[2],        //username_Hashed
-			parts[3],        //password_Hashed
-			parts[4],        //cIdName_Hashed
-			mapIndex2Delete) //mapIndex2Delete
+			parts[2], //usernameHashed
+			parts[3], //passwordHashed
+			parts[4], //cIdNameHashed
+			parts[5]) //cIdNameEncrypted
 	}
 
 	return types.OK
@@ -168,14 +167,27 @@ func (app *PasswerkApplication) CheckTx(tx []byte) types.Result {
 			return badReturn("Invalid number of TX parts")
 		}
 	case "deleting":
-		if len(parts) < 7 { //note that the length for deleting and writing just happens to be the same, may change in future passwerk
+		if len(parts) < 6 {
 			return badReturn("Invalid number of TX parts")
 		}
 
-		//check to make sure that system state hasn't changed
-		if parts[3] != bytes2HexString(app.state.Hash()) { //here parts[3] has passed on the system state from the broadcast
-			return badReturn("System state has changed")
+		//For Reference below
+		//parts[2], //usernameHashed
+		//parts[3], //passwordHashed
+		//parts[4], //cIdNameHashed
+		//parts[5]) //cIdNameEncrypted
+
+		treeRecordExists := app.state.Has(treeGetRecordKey(parts[2], parts[3], parts[4]))
+		_, mapValues, mapExists := app.state.Get(treeGetMapKey(parts[2], parts[3]))
+		containsCIdNameEncrypted := strings.Contains(string(mapValues), "/"+parts[5]+"/")
+
+		//check to make sure the record exists to be deleted
+		if treeRecordExists == false ||
+			mapExists == false ||
+			containsCIdNameEncrypted == false {
+			return badReturn("Record to delete does not exist")
 		}
+
 	default:
 		return badReturn("Invalid operational option")
 	}
@@ -195,11 +207,11 @@ func (app *PasswerkApplication) Query(query []byte) types.Result {
 
 //This method performs a broadcast_tx_commit call to tendermint
 //<incomplete code> rather than returning the raw html, data should be parsed and return the code, data, and log
-func broadcastTx_fromString(tx string) string {
+func broadcastTxFromString(tx string) string {
 	urlStringBytes := []byte(tx)
 	urlHexString := hex.EncodeToString(urlStringBytes[:])
 
-	resp, err := http.Get(`http://localhost:` + port_tendermint + `/broadcast_tx_commit?tx="` + urlHexString + `"`)
+	resp, err := http.Get(`http://localhost:` + portTendermint + `/broadcast_tx_commit?tx="` + urlHexString + `"`)
 	htmlBytes, _ := ioutil.ReadAll(resp.Body)
 	htmlString := string(htmlBytes)
 	if err != nil {
@@ -211,7 +223,7 @@ func broadcastTx_fromString(tx string) string {
 }
 
 //function handles http requests from the passwerk local host (not tendermint local host)
-func (app *PasswerkApplication) UI_inputHandler(w http.ResponseWriter, r *http.Request) {
+func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Request) {
 
 	UIoutput := "" //variable which holds the final output to be written by the program
 	urlString := r.URL.Path[1:]
@@ -227,11 +239,11 @@ func (app *PasswerkApplication) UI_inputHandler(w http.ResponseWriter, r *http.R
 
 	notSelected := "<notSelected>" //text indicating that a piece of URL input has not been submitted
 	idNameList := ""               //list of all the stored records which will be output if requested by the user (reading_IdNames)
-	URL_optionText := notSelected  //1st URL section - <manditory>  indicates the user write mode
-	URL_username := notSelected    //2nd URL section - <manditory> master username to be read or written from
-	URL_password := notSelected    //3rd URL section - <manditory> master password to be read or written with
-	URL_cIdName := notSelected     //4th URL section - <optional> cipherable indicator name for the password
-	URL_cPassword := notSelected   //5th URL section - <optional> cipherable password to be stored
+	urlOptionText := notSelected   //1st URL section - <manditory>  indicates the user write mode
+	urlUsername := notSelected     //2nd URL section - <manditory> master username to be read or written from
+	urlPassword := notSelected     //3rd URL section - <manditory> master password to be read or written with
+	urlCIdName := notSelected      //4th URL section - <optional> cipherable indicator name for the password
+	urlCPassword := notSelected    //5th URL section - <optional> cipherable password to be stored
 
 	// reading inputs from URL
 	// needs to be in a for loop to check for variable length input to urlStringSplit
@@ -239,109 +251,107 @@ func (app *PasswerkApplication) UI_inputHandler(w http.ResponseWriter, r *http.R
 	for i := 0; i < len(urlStringSplit); i++ {
 		switch i {
 		case 0:
-			URL_optionText = urlStringSplit[i]
+			urlOptionText = urlStringSplit[i]
 		case 1:
-			URL_username = urlStringSplit[i]
+			urlUsername = urlStringSplit[i]
 		case 2:
-			URL_password = urlStringSplit[i]
+			urlPassword = urlStringSplit[i]
 		case 3:
-			URL_cIdName = urlStringSplit[i]
+			urlCIdName = urlStringSplit[i]
 		case 4:
-			URL_cPassword = urlStringSplit[i]
+			urlCPassword = urlStringSplit[i]
 		}
 	}
 
 	//These two strings generated the hashes which are used for encryption and decryption of passwords
 	//<sloppy code> is there maybe a more secure encryption method here?
-	HashInput_cIdNameEncryption := URL_username + URL_password
-	HashInput_cPasswordEncryption := URL_cIdName + URL_password + URL_username
+	HashInputCIdNameEncryption := urlUsername + urlPassword
+	HashInputCPasswordEncryption := urlCIdName + urlPassword + urlUsername
 
-	operationalOption := getOperationalOption(notSelected, URL_optionText, URL_username,
-		URL_password, URL_cIdName, URL_cPassword)
+	operationalOption := getOperationalOption(notSelected, urlOptionText, urlUsername,
+		urlPassword, urlCIdName, urlCPassword)
 
 	//performing authentication (don't need to authenicate for writing passwords)
 	if operationalOption != "writing" &&
-		tree_Authenticate(app.state, getHashedHexString(URL_username), getHashedHexString(URL_password)) == false {
-		operationalOption = "ERROR_Authentication"
+		treeAuthenticate(app.state, getHashedHexString(urlUsername), getHashedHexString(urlPassword)) == false {
+		operationalOption = "ERRORAuthentication"
 	}
 
 	// performing operation
 	switch operationalOption {
-	case "reading_IdNames": //  <sloppy code> consider moving this section to query
+	case "readingIdNames": //  <sloppy code> consider moving this section to query
 
-		idNameListArray := tree_Retrieve_cIdNames(
+		idNameListArray := treeRetrieveCIdNames(
 			app.state,
-			getHashedHexString(URL_username),
-			getHashedHexString(URL_password),
-			HashInput_cIdNameEncryption)
+			getHashedHexString(urlUsername),
+			getHashedHexString(urlPassword),
+			HashInputCIdNameEncryption)
 		speachBubble = "...psst down at my toes"
 
 		for i := 0; i < len(idNameListArray); i++ {
 			idNameList = idNameList + "\n" + idNameListArray[i]
 		}
 
-	case "reading_Password": // <sloppy code> consider moving this section to query
+	case "readingPassword": // <sloppy code> consider moving this section to query
 
-		cPassword_decrypted := tree_Retrieve_cPassword(
+		cPasswordDecrypted := treeRetrieveCPassword(
 			app.state,
-			getHashedHexString(URL_username),
-			getHashedHexString(URL_password),
-			getHashedHexString(URL_cIdName),
-			HashInput_cPasswordEncryption)
+			getHashedHexString(urlUsername),
+			getHashedHexString(urlPassword),
+			getHashedHexString(urlCIdName),
+			HashInputCPasswordEncryption)
 
-		if cPassword_decrypted != "" {
-			speachBubble = cPassword_decrypted
+		if cPasswordDecrypted != "" {
+			speachBubble = cPasswordDecrypted
 		} else {
-			operationalOption = "ERROR_InvalidIdName"
+			operationalOption = "ERRORInvalidIdName"
 		}
 
 	case "deleting":
 		//determine the operation index
-		mapIndex, mapHash := tree_GetMapValueIndex(
+		mapCIdNameEncrypted2Delete := treeGetMapEncryptedCIdName(
 			app.state,
-			getHashedHexString(URL_username),
-			getHashedHexString(URL_password),
-			URL_cIdName,
-			HashInput_cIdNameEncryption)
-		if mapIndex >= 0 {
+			getHashedHexString(urlUsername),
+			getHashedHexString(urlPassword),
+			urlCIdName,
+			HashInputCIdNameEncryption)
+		if len(mapCIdNameEncrypted2Delete) >= 0 {
 
 			//create he tx then broadcast
 			tx2broadcast := path.Join(
 				timeStampString(),
 				operationalOption,
-				getHashedHexString(URL_username),
-				getHashedHexString(URL_password),
-				getHashedHexString(URL_cIdName),
-				strconv.Itoa(mapIndex),
-				mapHash)
-			broadcastTx_fromString(tx2broadcast)
+				getHashedHexString(urlUsername),
+				getHashedHexString(urlPassword),
+				getHashedHexString(urlCIdName),
+				mapCIdNameEncrypted2Delete)
+			broadcastTxFromString(tx2broadcast)
 
-			speachBubble = "*Chuckles* - nvr heard of no " + URL_cIdName + " before"
+			speachBubble = "*Chuckles* - nvr heard of no " + urlCIdName + " before"
 		} else {
-			operationalOption = "ERROR_InvalidIdName"
+			operationalOption = "ERRORInvalidIdName"
 		}
 
 	case "writing":
 		//before writing, any duplicate records must first be deleted
 		//determine the operation index
-		mapIndex, mapHash := tree_GetMapValueIndex(
+		mapCIdNameEncrypted2Delete := treeGetMapEncryptedCIdName(
 			app.state,
-			getHashedHexString(URL_username),
-			getHashedHexString(URL_password),
-			URL_cIdName,
-			HashInput_cIdNameEncryption)
-		if mapIndex >= 0 {
+			getHashedHexString(urlUsername),
+			getHashedHexString(urlPassword),
+			urlCIdName,
+			HashInputCIdNameEncryption)
+		if len(mapCIdNameEncrypted2Delete) >= 0 {
 
 			//create he tx then broadcast
 			tx2broadcast := path.Join(
 				timeStampString(),
 				"deleting",
-				getHashedHexString(URL_username),
-				getHashedHexString(URL_password),
-				getHashedHexString(URL_cIdName),
-				strconv.Itoa(mapIndex),
-				mapHash)
-			broadcastTx_fromString(tx2broadcast)
+				getHashedHexString(urlUsername),
+				getHashedHexString(urlPassword),
+				getHashedHexString(urlCIdName),
+				mapCIdNameEncrypted2Delete)
+			broadcastTxFromString(tx2broadcast)
 		}
 
 		//now write the records
@@ -349,35 +359,35 @@ func (app *PasswerkApplication) UI_inputHandler(w http.ResponseWriter, r *http.R
 		tx2broadcast := path.Join(
 			timeStampString(),
 			operationalOption,
-			getHashedHexString(URL_username),
-			getHashedHexString(URL_password),
-			getHashedHexString(URL_cIdName),
-			getEncryptedHexString(HashInput_cIdNameEncryption, URL_cIdName),
-			getEncryptedHexString(HashInput_cPasswordEncryption, URL_cPassword))
-		broadcastTx_fromString(tx2broadcast)
+			getHashedHexString(urlUsername),
+			getHashedHexString(urlPassword),
+			getHashedHexString(urlCIdName),
+			getEncryptedHexString(HashInputCIdNameEncryption, urlCIdName),
+			getEncryptedHexString(HashInputCPasswordEncryption, urlCPassword))
+		broadcastTxFromString(tx2broadcast)
 
 		speachBubble = "Roger That"
 	}
 
 	// writing speach bubbles for any errors encounted
 	switch operationalOption {
-	case "ERROR_General": //<sloppy code> add more types of specific error outputs
+	case "ERRORGeneral": //<sloppy code> add more types of specific error outputs
 		speachBubble = "ugh... general error"
 
-	case "ERROR_Authentication":
+	case "ERRORAuthentication":
 		speachBubble = "do i know u?"
 
-	case "ERROR_InvalidIdName":
+	case "ERRORInvalidIdName":
 		speachBubble = "sry nvr heard of it </3"
 	}
 
 	//Writing output
-	UIoutput = getUIoutput(URL_username, URL_password, URL_cIdName, speachBubble, idNameList)
+	UIoutput = getUIoutput(urlUsername, urlPassword, urlCIdName, speachBubble, idNameList)
 	fmt.Fprintf(w, UIoutput)
 }
 
-func getOperationalOption(notSelected string, URL_optionText string, URL_username string,
-	URL_password string, URL_cIdName string, URL_cPassword string) string {
+func getOperationalOption(notSelected, urlOptionText, urlUsername,
+	urlPassword, urlCIdName, urlCPassword string) string {
 
 	//OR equiv. - false if any are not selected
 	AnyAreNotSelected := func(inputs []string) bool {
@@ -389,43 +399,42 @@ func getOperationalOption(notSelected string, URL_optionText string, URL_usernam
 		return false
 	}
 
-	gen_ERROR := "ERROR_General"
+	genERROR := "ERRORGeneral"
 
-	switch URL_optionText {
+	switch urlOptionText {
 	case "r":
-		if AnyAreNotSelected([]string{URL_username, URL_password}) {
-			return gen_ERROR
-		} else if URL_cIdName != notSelected {
-			return "reading_Password"
+		if AnyAreNotSelected([]string{urlUsername, urlPassword}) {
+			return genERROR
+		} else if urlCIdName != notSelected {
+			return "readingPassword"
 		} else {
-			return "reading_IdNames"
+			return "readingIdNames"
 		}
 
 	case "w":
-		if AnyAreNotSelected([]string{URL_cIdName, URL_cPassword, URL_username, URL_password}) {
-			return gen_ERROR
+		if AnyAreNotSelected([]string{urlCIdName, urlCPassword, urlUsername, urlPassword}) {
+			return genERROR
 		} else {
 			return "writing"
 		}
 	case "d":
-		if AnyAreNotSelected([]string{URL_cIdName, URL_username, URL_password}) {
-			return gen_ERROR
+		if AnyAreNotSelected([]string{urlCIdName, urlUsername, urlPassword}) {
+			return genERROR
 		} else {
 			return "deleting"
 		}
 	default:
-		return gen_ERROR
+		return genERROR
 	}
 }
 
-func getUIoutput(URL_username string, URL_password string, URL_cIdName string,
-	speachBubble string, idNameList string) string {
+func getUIoutput(urlUsername, urlPassword, urlCIdName, speachBubble, idNameList string) string {
 	return "passwerk" + `
  __________________________________________
 |                                          |
-|  u: ` + URL_username + `
-|  p: ` + URL_password + `
-|  id: ` + URL_cIdName + `
+|  u: ` + urlUsername + `
+|  p: ` + urlPassword + `
+|  id: ` + urlCIdName + `
 |__________________________________________|	
 	
 	
@@ -452,15 +461,23 @@ func timeStampString() string {
 	return time.Now().Format(time.StampMicro)
 }
 
-func tree_Authenticate(state merkle.Tree, username_Hashed string, password_Hashed string) bool {
-	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+func treeGetMapKey(usernameHashed, passwordHashed string) []byte {
+	return []byte(path.Join(usernameHashed, passwordHashed))
+}
+
+func treeGetRecordKey(usernameHashed, passwordHashed, cIdNameHashed string) []byte {
+	return []byte(path.Join(usernameHashed, passwordHashed, cIdNameHashed))
+}
+
+func treeAuthenticate(state merkle.Tree, usernameHashed, passwordHashed string) bool {
+	mapKey := treeGetMapKey(usernameHashed, passwordHashed)
 	return state.Has(mapKey)
 }
 
-func tree_Retrieve_cIdNames(state merkle.Tree, username_Hashed string, password_Hashed string,
-	hashInput_cIdNameEncryption string) (cIdNames_Encrypted []string) {
+func treeRetrieveCIdNames(state merkle.Tree, usernameHashed, passwordHashed,
+	hashInputCIdNameEncryption string) (cIdNamesEncrypted []string) {
 
-	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+	mapKey := treeGetMapKey(usernameHashed, passwordHashed)
 	_, mapValues, exists := state.Get(mapKey)
 	if exists {
 
@@ -472,7 +489,7 @@ func tree_Retrieve_cIdNames(state merkle.Tree, username_Hashed string, password_
 			if len(cIdNames[i]) < 1 {
 				continue
 			}
-			cIdNames[i], _ = readDecrypted(hashInput_cIdNameEncryption, cIdNames[i])
+			cIdNames[i], _ = readDecrypted(hashInputCIdNameEncryption, cIdNames[i])
 		}
 		return cIdNames
 	} else {
@@ -480,25 +497,25 @@ func tree_Retrieve_cIdNames(state merkle.Tree, username_Hashed string, password_
 	}
 }
 
-func tree_Retrieve_cPassword(state merkle.Tree, username_Hashed string, password_Hashed string, cIdName_Hashed string,
-	hashInput_cPasswordEncryption string) string {
+func treeRetrieveCPassword(state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
+	hashInputCPasswordEncryption string) string {
 
-	cPasswordKey := []byte(path.Join(username_Hashed, password_Hashed, cIdName_Hashed))
-	_, cPassword_Encrypted, exists := state.Get(cPasswordKey)
+	cPasswordKey := treeGetRecordKey(usernameHashed, passwordHashed, cIdNameHashed)
+	_, cPasswordEncrypted, exists := state.Get(cPasswordKey)
 	if exists {
-		cPassword, _ := readDecrypted(hashInput_cPasswordEncryption, string(cPassword_Encrypted))
+		cPassword, _ := readDecrypted(hashInputCPasswordEncryption, string(cPasswordEncrypted))
 		return cPassword
 	} else {
 		return ""
 	}
 }
 
-func tree_DeleteRecord(state merkle.Tree, username_Hashed string, password_Hashed string, cIdName_Hashed string,
-	map_Index2Remove int) (success bool) {
+func treeDeleteRecord(state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
+	cIdNameEncrypted string) (success bool) {
 
 	//verify the record exists
-	merkleRecordKey := []byte(path.Join(username_Hashed, password_Hashed, cIdName_Hashed))
-	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+	merkleRecordKey := treeGetRecordKey(usernameHashed, passwordHashed, cIdNameHashed)
+	mapKey := treeGetMapKey(usernameHashed, passwordHashed)
 	_, mapValues, mapExists := state.Get(mapKey)
 
 	if state.Has(merkleRecordKey) == false ||
@@ -513,17 +530,9 @@ func tree_DeleteRecord(state merkle.Tree, username_Hashed string, password_Hashe
 	}
 
 	//delete the index from the map
-	oldMapValuesSplit := strings.Split(string(mapValues), "/")
-	mapValuesNew := "/" //the map always starts and ends with a backslash always
-
-	//recomplile the masterValues to masterValuesNew, skipping the removed index
-	for i := 0; i < len(oldMapValuesSplit); i++ {
-		if len(oldMapValuesSplit[i]) < 1 || i == map_Index2Remove { //<sloppy code> this prevents users from saving a password of length zero, should account for this
-			continue
-		}
-		mapValuesNew += oldMapValuesSplit[i] + "/"
-		//remove record from master list and merkle tree
-	}
+	oldMapValues := string(mapValues)
+	newMapValues := strings.Replace(oldMapValues, "/"+cIdNameEncrypted+"/", "/", 1)
+	state.Set(mapKey, []byte(newMapValues))
 
 	//delete the map too if there are no more values within it!
 	_, mapValues, _ = state.Get(mapKey)
@@ -534,58 +543,58 @@ func tree_DeleteRecord(state merkle.Tree, username_Hashed string, password_Hashe
 	return true
 }
 
-func tree_GetMapValueIndex(state merkle.Tree, username_Hashed string, password_Hashed string, cIdName_Unencrypted string,
-	hashInput_cIdNameEncryption string) (mapIndex int, mapHash string) {
+func treeGetMapEncryptedCIdName(state merkle.Tree, usernameHashed, passwordHashed, cIdNameUnencrypted,
+	hashInputCIdNameEncryption string) string {
 
-	outIndex := -1
+	cIdNameOrigEncrypted := ""
 
-	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+	mapKey := treeGetMapKey(usernameHashed, passwordHashed)
 	_, mapValues, exists := state.Get(mapKey)
 	if exists == false {
-		return outIndex, bytes2HexString(state.Hash())
+		return cIdNameOrigEncrypted
 	}
 
 	//get the encrypted cIdNames
 	cIdNames := strings.Split(string(mapValues), "/")
 
-	//determine the correct index
+	//determine the correct value from the cIdNames array and return
 	for i := 0; i < len(cIdNames); i++ {
 		if len(cIdNames[i]) < 1 {
 			continue
 		}
-		temp_cIdName_Decrypted, _ := readDecrypted(hashInput_cIdNameEncryption, cIdNames[i])
+		tempCIdNameDecrypted, _ := readDecrypted(hashInputCIdNameEncryption, cIdNames[i])
 
 		//remove record from master list and merkle tree
-		if cIdName_Unencrypted == temp_cIdName_Decrypted {
-			outIndex = i
+		if cIdNameUnencrypted == tempCIdNameDecrypted {
+			cIdNameOrigEncrypted = cIdNames[i]
 		}
 	}
 
-	return outIndex, bytes2HexString(state.Hash())
+	return cIdNameOrigEncrypted
 }
 
 //must delete any records with the same cIdName before adding a new record
-func tree_NewRecord(state merkle.Tree, username_Hashed string, password_Hashed string, cIdName_Hashed string,
-	cIdName_Encrypted string, cPassword_Encrypted string) {
+func treeNewRecord(state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
+	cIdNameEncrypted, cPasswordEncrypted string) {
 
-	mapKey := []byte(path.Join(username_Hashed, password_Hashed))
+	mapKey := treeGetMapKey(usernameHashed, passwordHashed)
 
 	//get the newIndex and add it to the master list/create the master list if doesn't exist
 	if state.Has(mapKey) {
 		_, mapValues, _ := state.Get(mapKey)
-		state.Set(mapKey, []byte(string(mapValues)+cIdName_Encrypted+"/"))
+		state.Set(mapKey, []byte(string(mapValues)+cIdNameEncrypted+"/"))
 	} else {
-		state.Set([]byte(mapKey), []byte("/"+cIdName_Encrypted+"/"))
+		state.Set(mapKey, []byte("/"+cIdNameEncrypted+"/"))
 	}
 
 	//create the new record in the tree
-	insertKey := []byte(path.Join(username_Hashed, password_Hashed, cIdName_Hashed))
-	insertValues := []byte(cPassword_Encrypted)
+	insertKey := treeGetRecordKey(usernameHashed, passwordHashed, cIdNameHashed)
+	insertValues := []byte(cPasswordEncrypted)
 	state.Set(insertKey, insertValues)
 }
 
 //read and decrypt from the hashPasswordList
-func readDecrypted(hashInput string, encryptedString string) (decryptedString string, err error) {
+func readDecrypted(hashInput, encryptedString string) (decryptedString string, err error) {
 
 	// The key length must be 32, 24, or 16  bytes
 	key := getHash(hashInput)
@@ -599,7 +608,7 @@ func readDecrypted(hashInput string, encryptedString string) (decryptedString st
 }
 
 //return an encrypted string. the encyption key is taken as hashed value of the input variable hashInput
-func getEncryptedHexString(hashInput string, unencryptedString string) string {
+func getEncryptedHexString(hashInput, unencryptedString string) string {
 
 	// The key length must be 32, 24, or 16  bytes
 	key := getHash(hashInput)
