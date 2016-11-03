@@ -1,6 +1,9 @@
 # tendermint go db #
 db/passwerkDB.db/
 
+#vim files#
+.swp
+
 # Compiled source #
 ###################
 *.com
