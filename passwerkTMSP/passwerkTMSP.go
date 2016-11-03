@@ -52,6 +52,7 @@ import (
 	"time"
 
 	. "github.com/tendermint/go-common"
+	"github.com/tendermint/go-db"
 	"github.com/tendermint/go-merkle"
 	"github.com/tendermint/tmsp/types"
 )
@@ -69,13 +70,18 @@ type PasswerkApplication struct {
 	//      main values: key - hashed master-usr/master-pwd/cIdName
 	//                   values - encrypted cPassword
 	//
-	state merkle.Tree
+	state        merkle.Tree
+	stateDB      db.DB
+	stateHashKey []byte
 }
 
-func NewPasswerkApplication() *PasswerkApplication {
+func NewPasswerkApplication(stateIn merkle.Tree, stateDBIn db.DB, stateHashKeyIn []byte) *PasswerkApplication {
 
-	state := merkle.NewIAVLTree(0, nil)
-	app := &PasswerkApplication{state: state}
+	app := &PasswerkApplication{
+		state:        stateIn,
+		stateDB:      stateDBIn,
+		stateHashKey: stateHashKeyIn,
+	}
 	go httpListener(app)
 
 	return app
@@ -128,6 +134,9 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 			parts[4], //cIdNameHashed
 			parts[5]) //cIdNameEncrypted
 	}
+
+	//save the root hash in the db for persistence
+	app.stateDB.Set(app.stateHashKey, app.state.Save())
 
 	return types.OK
 }

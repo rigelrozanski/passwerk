@@ -14,8 +14,12 @@ package main
 
 import (
 	"flag"
+	"io"
+	"os"
 
 	. "github.com/tendermint/go-common"
+	"github.com/tendermint/go-db"
+	"github.com/tendermint/go-merkle"
 	"github.com/tendermint/tmsp/server"
 	"passwerk/passwerkTMSP"
 )
@@ -26,8 +30,23 @@ func main() {
 	tmspPtr := flag.String("tmsp", "socket", "socket | grpc")
 	flag.Parse()
 
+	//setup the persistent merkle tree to be used by both the UI and tendermint
+	dbPath := "db"
+	oldDBNotpresent, _ := IsDirEmpty(dbPath)
+
+	passwerkDB := db.NewDB("passwerkDB", db.DBBackendLevelDB, dbPath)
+	state := merkle.NewIAVLTree(0, passwerkDB) //right now cachesize is set to 0, for production purposes, this should maybe be increased
+
+	//either load, or set and load the dbHash
+	merkleHashDBkey := []byte("mommaDBHash")
+	if oldDBNotpresent {
+		passwerkDB.Set(merkleHashDBkey, state.Save())
+	}
+
+	state.Load(passwerkDB.Get([]byte(merkleHashDBkey)))
+
 	// Start the listener
-	_, err := server.NewServer(*addrPtr, *tmspPtr, passwerkTMSP.NewPasswerkApplication())
+	_, err := server.NewServer(*addrPtr, *tmspPtr, passwerkTMSP.NewPasswerkApplication(state, passwerkDB, merkleHashDBkey))
 	if err != nil {
 		Exit(err.Error())
 	}
@@ -36,4 +55,18 @@ func main() {
 	TrapSignal(func() {
 		// Cleanup
 	})
+}
+
+func IsDirEmpty(name string) (bool, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	_, err = f.Readdirnames(1) // Or f.Readdir(1)
+	if err == io.EOF {
+		return true, nil
+	}
+	return false, err // Either not empty or error, suits both cases
 }
