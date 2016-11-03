@@ -2,7 +2,7 @@
 db/passwerkDB.db/
 
 #vim files#
-.swp
+*.swp
 
 # Compiled source #
 ###################
