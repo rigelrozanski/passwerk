@@ -36,11 +36,11 @@
 package passwerkTMSP
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
+	//	"crypto/aes"
+	//	"crypto/cipher"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
+	//	"errors"
 	"fmt"
 	"golang.org/x/crypto/sha3"
 	"io"
@@ -55,6 +55,7 @@ import (
 	"github.com/tendermint/go-db"
 	"github.com/tendermint/go-merkle"
 	"github.com/tendermint/tmsp/types"
+	"golang.org/x/crypto/nacl/box"
 )
 
 const portPasswerkUI string = "8080"
@@ -82,6 +83,7 @@ func NewPasswerkApplication(stateIn merkle.Tree, stateDBIn db.DB, stateHashKeyIn
 		stateDB:      stateDBIn,
 		stateHashKey: stateHashKeyIn,
 	}
+
 	go httpListener(app)
 
 	return app
@@ -615,12 +617,13 @@ func treeNewRecord(state merkle.Tree, usernameHashed, passwordHashed, cIdNameHas
 //read and decrypt from the hashPasswordList
 func readDecrypted(hashInput, encryptedString string) (decryptedString string, err error) {
 
-	// The key length must be 32, 24, or 16  bytes
-	key := getHash(hashInput)
+	var key [32]byte
+	copy(key[:], getHash(hashInput))
+
 	var ciphertext, decryptedByte []byte
 
 	ciphertext, err = hex.DecodeString(encryptedString)
-	decryptedByte, err = decrypt(key, ciphertext)
+	decryptedByte, _ = decryptNaCl(&key, ciphertext) //<sloppy code> add error handling
 	decryptedString = string(decryptedByte[:])
 
 	return
@@ -629,9 +632,10 @@ func readDecrypted(hashInput, encryptedString string) (decryptedString string, e
 //return an encrypted string. the encyption key is taken as hashed value of the input variable hashInput
 func getEncryptedHexString(hashInput, unencryptedString string) string {
 
-	// The key length must be 32, 24, or 16  bytes
-	key := getHash(hashInput)
-	encryptedByte, err := encrypt(key, []byte(unencryptedString))
+	var key [32]byte
+	copy(key[:], getHash(hashInput))
+
+	encryptedByte, err := encryptNaCl(&key, []byte(unencryptedString))
 
 	if err == nil {
 		encryptedHexString := hex.EncodeToString(encryptedByte[:])
@@ -662,48 +666,80 @@ func getHash(dataInput string) []byte {
 	return hashBytes[:]
 }
 
-func encrypt(key, text []byte) (ciphertext []byte, err error) {
+func encryptNaCl(key *[32]byte, text []byte) (ciphertext []byte, err error) {
 
-	var block cipher.Block
+	var nonce [24]byte
 
-	if block, err = aes.NewCipher(key); err != nil {
-		return nil, err
-	}
-
-	ciphertext = make([]byte, aes.BlockSize+len(string(text)))
-
-	// iv =  initialization vector
-	iv := ciphertext[:aes.BlockSize]
-	if _, err = io.ReadFull(rand.Reader, iv); err != nil {
+	if _, err = io.ReadFull(rand.Reader, nonce[:]); err != nil {
 		return
 	}
 
-	cfb := cipher.NewCFBEncrypter(block, iv)
-	cfb.XORKeyStream(ciphertext[aes.BlockSize:], text)
+	//crypted := make([]byte, 0, box.Overhead+len(message))
+
+	ciphertext = box.SealAfterPrecomputation([]byte(""), text, &nonce, key)
+	ciphertext = append(nonce[:], ciphertext...)
 
 	return
 }
 
-func decrypt(key, ciphertext []byte) (plaintext []byte, err error) {
+func decryptNaCl(key *[32]byte, ciphertext []byte) (plaintext []byte, success bool) {
 
-	var block cipher.Block
+	var nonce [24]byte
+	copy(nonce[:], ciphertext[:24])
 
-	if block, err = aes.NewCipher(key); err != nil {
-		return
+	cipherMessage := ciphertext[24:]
+
+	plaintext, success = box.OpenAfterPrecomputation([]byte(""), cipherMessage, &nonce, key)
+
+	if success == false {
+		return nil, success
 	}
-
-	if len(ciphertext) < aes.BlockSize {
-		err = errors.New("ciphertext too short")
-		return
-	}
-
-	iv := ciphertext[:aes.BlockSize]
-	ciphertext = ciphertext[aes.BlockSize:]
-
-	cfb := cipher.NewCFBDecrypter(block, iv)
-	cfb.XORKeyStream(ciphertext, ciphertext)
-
-	plaintext = ciphertext
 
 	return
 }
+
+//func encrypt(key, text []byte) (ciphertext []byte, err error) {
+//
+//	var block cipher.Block
+//
+//	if block, err = aes.NewCipher(key); err != nil {
+//		return nil, err
+//	}
+//
+//	ciphertext = make([]byte, aes.BlockSize+len(string(text)))
+//
+//	// iv =  initialization vector
+//	iv := ciphertext[:aes.BlockSize]
+//	if _, err = io.ReadFull(rand.Reader, iv); err != nil {
+//		return
+//	}
+//
+//	cfb := cipher.NewCFBEncrypter(block, iv)
+//	cfb.XORKeyStream(ciphertext[aes.BlockSize:], text)
+//
+//	return
+//}
+//
+//func decrypt(key, ciphertext []byte) (plaintext []byte, err error) {
+//
+//	var block cipher.Block
+//
+//	if block, err = aes.NewCipher(key); err != nil {
+//		return
+//	}
+//
+//	if len(ciphertext) < aes.BlockSize {
+//		err = errors.New("ciphertext too short")
+//		return
+//	}
+//
+//	iv := ciphertext[:aes.BlockSize]
+//	ciphertext = ciphertext[aes.BlockSize:]
+//
+//	cfb := cipher.NewCFBDecrypter(block, iv)
+//	cfb.XORKeyStream(ciphertext, ciphertext)
+//
+//	plaintext = ciphertext
+//
+//	return
+//}
