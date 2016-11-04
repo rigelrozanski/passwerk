@@ -32,9 +32,16 @@ func main() {
 
 	//setup the persistent merkle tree to be used by both the UI and tendermint
 	dbPath := "db"
-	oldDBNotPresent, _ := IsDirEmpty(dbPath)
+	oldDBNotPresent, err := IsDirEmpty(dbPath)
+	if err != nil {
+		Exit(err.Error())
+	}
 
-	fmt.Println(oldDBNotPresent)
+	if oldDBNotPresent == true {
+		fmt.Println("no existing db, creating new db")
+	} else {
+		fmt.Println("loading existing db")
+	}
 
 	passwerkDB := db.NewDB("passwerkDB", db.DBBackendLevelDB, dbPath)
 	state := merkle.NewIAVLTree(0, passwerkDB) //right now cachesize is set to 0, for production purposes, this should maybe be increased
@@ -48,7 +55,7 @@ func main() {
 	state.Load(passwerkDB.Get([]byte(merkleHashDBkey)))
 
 	// Start the listener
-	_, err := server.NewServer(*addrPtr, *tmspPtr, passwerkTMSP.NewPasswerkApplication(state, passwerkDB, merkleHashDBkey))
+	_, err = server.NewServer(*addrPtr, *tmspPtr, passwerkTMSP.NewPasswerkApplication(state, passwerkDB, merkleHashDBkey))
 	if err != nil {
 		Exit(err.Error())
 	}

@@ -13,24 +13,24 @@
 // Currently, all user input is provided through the URL.
 // Within the examples HTTP calls, within the example URLs
 // the following variables are described as follows:
-// 	master_username - The master username that is non-retrievable
-//      master_password - The master password that is non-retrievable
+// 	masterUsername - The master username that is non-retrievable
+//      masterPassword - The master password that is non-retrievable
 //      identifier - a retrievable unique identifier for a saved password
 //      savedpassword - a retrievable saved password associated with an identifier
 //
 // EXAMPLES:
 //
 // writing a new record to the system:
-//	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
+//	http://localhost:8080/w/masterUsername/masterPassword/idenfier/savedpassword
 //
 // reading list of identifiers of all the saved passwords for a given master-username/master-password
-//	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
+//	http://localhost:8080/w/masterUsername/masterPassword/idenfier/savedpassword
 //
 // reading a saved password for a given master-username/master-password/identifier
-//	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
+//	http://localhost:8080/w/masterUsername/masterPassword/idenfier/savedpassword
 //
 // deleting a saved password/identifier for a given master-username/master-password/identifier
-//	http://localhost:8080/w/master_username/master_password/idenfier/savedpassword
+//	http://localhost:8080/w/masterUsername/masterPassword/idenfier/savedpassword
 //
 
 package passwerkTMSP
@@ -45,7 +45,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"path"
-	//"strconv"
+	"strconv"
 	"strings"
 	"time"
 
@@ -137,7 +137,7 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 	switch operationalOption {
 	case "writing":
 		err := treeNewRecord(
-			app.stateDB,
+			&app.stateDB,
 			app.state,
 			parts[2], //usernameHashed
 			parts[3], //passwordashed
@@ -149,16 +149,16 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 			return badReturn(err.Error())
 		}
 	case "deleting":
-		success := treeDeleteRecord(
-			app.stateDB,
+		err := treeDeleteRecord(
+			&app.stateDB,
 			app.state,
 			parts[2], //usernameHashed
 			parts[3], //passwordHashed
 			parts[4], //cIdNameHashed
 			parts[5], //cIdNameEncrypted
 		)
-		if success == false {
-			return badReturn("failed to delete")
+		if err != nil {
+			return badReturn(err.Error())
 		}
 
 	}
@@ -205,7 +205,7 @@ func (app *PasswerkApplication) CheckTx(tx []byte) types.Result {
 		cIdNameHashed := parts[4]
 		cIdNameEncrypted := parts[5]
 
-		subTree, err := loadSubTree(app.stateDB, app.state, usernameHashed, passwordHashed)
+		subTree, err := loadSubTree(&app.stateDB, app.state, usernameHashed, passwordHashed)
 		if err != nil {
 			return badReturn("bad sub tree")
 		}
@@ -245,7 +245,7 @@ func broadcastTxFromString(tx string) string {
 	urlHexString := hex.EncodeToString(urlStringBytes[:])
 
 	resp, err := http.Get(`http://localhost:` + portTendermint + `/broadcast_tx_commit?tx="` + urlHexString + `"`)
-	htmlBytes, _ := ioutil.ReadAll(resp.Body)
+	htmlBytes, err := ioutil.ReadAll(resp.Body)
 	htmlString := string(htmlBytes)
 	if err != nil {
 		panic(err)
@@ -258,15 +258,30 @@ func broadcastTxFromString(tx string) string {
 //function handles http requests from the passwerk local host (not tendermint local host)
 func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+
 	UIoutput := "" //variable which holds the final output to be written by the program
 	urlString := r.URL.Path[1:]
 	speachBubble := "i h8 myslf"   //speach bubble text for the ASCII assailant
 	notSelected := "<notSelected>" //text indicating that a piece of URL input has not been submitted
 
+	var idNameList, //		list of all the stored records which will be output if requested by the user (readingIdNames)
+		urlOptionText, //	1st URL section - <manditory>  indicates the user write mode
+		urlUsername, //		2nd URL section - <manditory> master username to be read or written from
+		urlPassword, //		3rd URL section - <manditory> master password to be read or written with
+		urlCIdName, //		4th URL section - <optional> cipherable indicator name for the password
+		urlCPassword string //	5th URL section - <optional> cipherable password to be stored
+
+	//This function writes the user interface, used always before exiting the UIInputHandler
+	writeUI := func() {
+		UIoutput = getUIoutput(err, urlUsername, urlPassword, urlCIdName, speachBubble, idNameList)
+		fmt.Fprintf(w, UIoutput)
+	}
+
 	//if there are less than three variables provided make a fuss
 	if len(strings.Split(urlString, `/`)) < 3 {
-		UIoutput = getUIoutput("", "", "", speachBubble, "") //<sloppy code> should provide some indicator to the user as to what the problem is
-		fmt.Fprintf(w, UIoutput)
+		err = errors.New("not enough URL arguments")
+		writeUI()
 		return
 	}
 
@@ -281,92 +296,90 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	idNameList := ""                   //list of all the stored records which will be output if requested by the user (reading_IdNames)
-	urlOptionText := urlStringSplit[0] //1st URL section - <manditory>  indicates the user write mode
-	urlUsername := urlStringSplit[1]   //2nd URL section - <manditory> master username to be read or written from
-	urlPassword := urlStringSplit[2]   //3rd URL section - <manditory> master password to be read or written with
-	urlCIdName := urlStringSplit[3]    //4th URL section - <optional> cipherable indicator name for the password
-	urlCPassword := urlStringSplit[4]  //5th URL section - <optional> cipherable password to be stored
-
-	// reading inputs from URL
-	// needs to be in a for loop to check for variable length input to urlStringSplit
-	// to avoid array index out of bounds
-	//	for i := 0; i < len(urlStringSplit); i++ {
-	//		switch i {
-	//		case 0:
-	//			urlOptionText = urlStringSplit[i]
-	//		case 1:
-	//			urlUsername = urlStringSplit[i]
-	//		case 2:
-	//			urlPassword = urlStringSplit[i]
-	//		case 3:
-	//			urlCIdName = urlStringSplit[i]
-	//		case 4:
-	//			urlCPassword = urlStringSplit[i]
-	//		}
-	//	}
+	urlOptionText = urlStringSplit[0]
+	urlUsername = urlStringSplit[1]
+	urlPassword = urlStringSplit[2]
+	urlCIdName = urlStringSplit[3]
+	urlCPassword = urlStringSplit[4]
 
 	//These two strings generated the hashes which are used for encryption and decryption of passwords
 	//<sloppy code> is there maybe a more secure encryption method here?
 	HashInputCIdNameEncryption := urlUsername + urlPassword
 	HashInputCPasswordEncryption := urlCIdName + urlPassword + urlUsername
 
-	operationalOption := getOperationalOption(notSelected, urlOptionText, urlUsername,
+	var operationalOption string
+	operationalOption, err = getOperationalOption(notSelected, urlOptionText, urlUsername,
 		urlPassword, urlCIdName, urlCPassword)
+	if err != nil {
+		writeUI()
+		return
+	}
 
 	//performing authentication (don't need to authenicate for writing passwords)
 	if operationalOption != "writing" &&
 		treeAuthenticate(app.state, getHashedHexString(urlUsername), getHashedHexString(urlPassword)) == false {
-		operationalOption = "ERRORAuthentication"
+		err = errors.New("badAuthentication")
+		writeUI()
+		return
 	}
 
 	// performing operation
 	switch operationalOption {
 	case "readingIdNames":
 
-		idNameListArray, err := treeRetrieveCIdNames( //<sloppy code> add error handling
-			app.stateDB,
+		var idNameListArray []string
+		idNameListArray, err = treeRetrieveCIdNames( //<sloppy code> add error handling
+			&app.stateDB,
 			app.state,
 			getHashedHexString(urlUsername),
 			getHashedHexString(urlPassword),
 			HashInputCIdNameEncryption,
 		)
-		if err == nil {
-			speachBubble = "...psst down at my toes"
-
-			for i := 0; i < len(idNameListArray); i++ {
-				idNameList = idNameList + "\n" + idNameListArray[i]
-			}
-		} else {
-			speachBubble = err.Error()
+		if err != nil {
+			writeUI()
+			return
 		}
-	case "readingPassword":
 
-		cPasswordDecrypted, err := treeRetrieveCPassword(
-			app.stateDB,
+		speachBubble = "...psst down at my toes"
+
+		for i := 0; i < len(idNameListArray); i++ {
+			idNameList = idNameList + "\n" + idNameListArray[i]
+		}
+
+	case "readingPassword":
+		var cPasswordDecrypted string
+		cPasswordDecrypted, err = treeRetrieveCPassword(
+			&app.stateDB,
 			app.state,
 			getHashedHexString(urlUsername),
 			getHashedHexString(urlPassword),
 			getHashedHexString(urlCIdName),
 			HashInputCPasswordEncryption,
 		)
-		if cPasswordDecrypted != "" && err == nil {
-			speachBubble = cPasswordDecrypted
-		} else {
-			operationalOption = "ERRORInvalidIdName"
+		if err != nil {
+			writeUI()
+			return
 		}
+		speachBubble = cPasswordDecrypted
 
 	case "deleting":
 		//determine encrypted text to delete
-		mapCIdNameEncrypted2Delete, err := treeGetCIdListEncryptedCIdName(
-			app.stateDB,
+		var mapCIdNameEncrypted2Delete string
+		mapCIdNameEncrypted2Delete, err = treeGetCIdListEncryptedCIdName(
+			&app.stateDB,
 			app.state,
 			getHashedHexString(urlUsername),
 			getHashedHexString(urlPassword),
 			urlCIdName,
 			HashInputCIdNameEncryption,
 		)
-		if len(mapCIdNameEncrypted2Delete) >= 0 && err != nil {
+
+		if err != nil {
+			writeUI()
+			return
+		}
+
+		if len(mapCIdNameEncrypted2Delete) >= 0 {
 
 			//create he tx then broadcast
 			tx2broadcast := path.Join(
@@ -380,20 +393,25 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 
 			speachBubble = "*Chuckles* - nvr heard of no " + urlCIdName + " before"
 		} else {
-			operationalOption = "ERRORInvalidIdName"
+			err = errors.New("invalidCIdName")
+			writeUI()
+			return
 		}
 
 	case "writing":
 		//before writing, any duplicate records must first be deleted
-		mapCIdNameEncrypted2Delete, err := treeGetCIdListEncryptedCIdName(
-			app.stateDB,
+		//do not worry about error handling here for records that do not exist
+		//  it doesn't really matter if there is nothing to delete
+		var mapCIdNameEncrypted2Delete string
+		mapCIdNameEncrypted2Delete, err = treeGetCIdListEncryptedCIdName(
+			&app.stateDB,
 			app.state,
 			getHashedHexString(urlUsername),
 			getHashedHexString(urlPassword),
 			urlCIdName,
 			HashInputCIdNameEncryption,
 		)
-		if len(mapCIdNameEncrypted2Delete) >= 0 && err != nil {
+		if len(mapCIdNameEncrypted2Delete) >= 0 && err == nil {
 
 			//create he tx then broadcast
 			tx2broadcast := path.Join(
@@ -405,6 +423,9 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 				mapCIdNameEncrypted2Delete)
 			broadcastTxFromString(tx2broadcast)
 		}
+
+		//reset the error term because it doesn't matter if the record was non-existent
+		err = nil
 
 		//now write the records
 		//create he tx then broadcast
@@ -421,27 +442,15 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 		speachBubble = "Roger That"
 	}
 
-	// writing speach bubbles for any errors encounted
-	switch operationalOption {
-	case "ERRORGeneral": //<sloppy code> add more types of specific error outputs
-		speachBubble = "ugh... general error"
-
-	case "ERRORAuthentication":
-		speachBubble = "do i know u?"
-
-	case "ERRORInvalidIdName":
-		speachBubble = "sry nvr heard of it </3"
-	}
-
 	//Writing output
-	UIoutput = getUIoutput(urlUsername, urlPassword, urlCIdName, speachBubble, idNameList)
-	fmt.Fprintf(w, UIoutput)
+	writeUI()
+	return
 }
 
 func getOperationalOption(notSelected, urlOptionText, urlUsername,
-	urlPassword, urlCIdName, urlCPassword string) string {
+	urlPassword, urlCIdName, urlCPassword string) (string, error) {
 
-	//OR equiv. - false if any are not selected
+	//This function returns true if any of the input array have the value of notSelected
 	AnyAreNotSelected := func(inputs []string) bool {
 		for i := 0; i < len(inputs); i++ {
 			if inputs[i] == notSelected {
@@ -451,36 +460,53 @@ func getOperationalOption(notSelected, urlOptionText, urlUsername,
 		return false
 	}
 
-	genERROR := "ERRORGeneral"
+	genErr := errors.New("generalError")
 
 	switch urlOptionText {
 	case "r":
 		if AnyAreNotSelected([]string{urlUsername, urlPassword}) {
-			return genERROR
+			return "", genErr
 		} else if urlCIdName != notSelected {
-			return "readingPassword"
+			return "readingPassword", nil
 		} else {
-			return "readingIdNames"
+			return "readingIdNames", nil
 		}
 
 	case "w":
 		if AnyAreNotSelected([]string{urlCIdName, urlCPassword, urlUsername, urlPassword}) {
-			return genERROR
+			return "", genErr
 		} else {
-			return "writing"
+			return "writing", nil
 		}
 	case "d":
 		if AnyAreNotSelected([]string{urlCIdName, urlUsername, urlPassword}) {
-			return genERROR
+			return "", genErr
 		} else {
-			return "deleting"
+			return "deleting", nil
 		}
 	default:
-		return genERROR
+		return "", genErr
 	}
 }
 
-func getUIoutput(urlUsername, urlPassword, urlCIdName, speachBubble, idNameList string) string {
+func getUIoutput(err error, urlUsername, urlPassword, urlCIdName, speachBubble, idNameList string) string {
+
+	// writing special speach bubbles for errors encounted
+	if err != nil {
+		switch err.Error() {
+		case "generalError": //<sloppy code> add more types of specific error outputs
+			speachBubble = "ugh... general error"
+
+		case "badAuthentication":
+			speachBubble = "do i know u?"
+
+		case "invalidCIdName":
+			speachBubble = "sry nvr heard of it </3"
+		default:
+			speachBubble = err.Error()
+		}
+	}
+
 	return "passwerk" + `
  __________________________________________
 |                                          |
@@ -533,9 +559,9 @@ func treeAuthenticate(state merkle.Tree, usernameHashed, passwordHashed string) 
 
 //the momma merkle tree has sub-merkle tree state (output for .Save())
 // stored as the value in the key-value pair in the momma tree
-func loadSubTree(dbIn db.DB, mommaTree merkle.Tree, usernameHashed, passwordHashed string) (merkle.Tree, error) {
+func loadSubTree(dbIn *db.DB, mommaTree merkle.Tree, usernameHashed, passwordHashed string) (merkle.Tree, error) {
 
-	subTree := merkle.NewIAVLTree(merkleCacheSize, dbIn)
+	subTree := merkle.NewIAVLTree(merkleCacheSize, *dbIn)
 	_, treeOutHash2Load, exists := mommaTree.Get(treeGetMapKey(usernameHashed, passwordHashed))
 	if exists == false {
 		return nil, errors.New("sub tree doesn't exist")
@@ -546,36 +572,24 @@ func loadSubTree(dbIn db.DB, mommaTree merkle.Tree, usernameHashed, passwordHash
 	return subTree, nil
 }
 
-func saveSubTree(subTree, mommaTree merkle.Tree, usernameHashed, passwordHashed string) error {
-
-	success := mommaTree.Set(treeGetMapKey(usernameHashed, passwordHashed), subTree.Save())
-	if success == false {
-		return errors.New("bad subtree save")
-	}
-
-	return nil
+func saveSubTree(subTree, mommaTree merkle.Tree, usernameHashed, passwordHashed string) {
+	mommaTree.Set(treeGetMapKey(usernameHashed, passwordHashed), subTree.Save())
 }
 
-func newSubTree(dbIn db.DB, mommaTree merkle.Tree, usernameHashed, passwordHashed string) (merkle.Tree, error) {
-
-	subTree := merkle.NewIAVLTree(merkleCacheSize, dbIn)
-
-	success := mommaTree.Set(treeGetMapKey(usernameHashed, passwordHashed), subTree.Save())
-	if success == false {
-		return nil, errors.New("sub tree improperly created")
-	}
-
-	return subTree, nil
+func newSubTree(dbIn *db.DB, mommaTree merkle.Tree, usernameHashed, passwordHashed string) merkle.Tree {
+	subTree := merkle.NewIAVLTree(merkleCacheSize, *dbIn)
+	mommaTree.Set(treeGetMapKey(usernameHashed, passwordHashed), subTree.Save())
+	return subTree
 }
 
-func treeRetrieveCIdNames(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHashed,
+func treeRetrieveCIdNames(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed,
 	hashInputCIdNameEncryption string) (cIdNamesEncrypted []string, err error) {
 
 	subTree, err := loadSubTree(dbIn, state, usernameHashed, passwordHashed)
 
 	cIdListKey := treeGetIdListKey(usernameHashed, passwordHashed)
-	_, mapValues, exists := subTree.Get(cIdListKey)
-	if exists {
+	if subTree.Has(cIdListKey) {
+		_, mapValues, _ := subTree.Get(cIdListKey)
 
 		//get the encrypted cIdNames
 		cIdNames := strings.Split(string(mapValues), "/")
@@ -589,11 +603,12 @@ func treeRetrieveCIdNames(dbIn db.DB, state merkle.Tree, usernameHashed, passwor
 		}
 		return cIdNames, err
 	} else {
+		err = errors.New("badAuthentication")
 		return nil, err
 	}
 }
 
-func treeRetrieveCPassword(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
+func treeRetrieveCPassword(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
 	hashInputCPasswordEncryption string) (cPassword string, err error) {
 
 	subTree, err := loadSubTree(dbIn, state, usernameHashed, passwordHashed)
@@ -604,14 +619,17 @@ func treeRetrieveCPassword(dbIn db.DB, state merkle.Tree, usernameHashed, passwo
 		cPassword, err = readDecrypted(hashInputCPasswordEncryption, string(cPasswordEncrypted))
 		return
 	} else {
+		err = errors.New("invalidCIdName")
 		return
 	}
 }
 
-func treeDeleteRecord(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
-	cIdNameEncrypted string) (success bool) {
+func treeDeleteRecord(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
+	cIdNameEncrypted string) (err error) {
 
-	subTree, err := loadSubTree(dbIn, state, usernameHashed, passwordHashed)
+	var subTree merkle.Tree
+
+	subTree, err = loadSubTree(dbIn, state, usernameHashed, passwordHashed)
 
 	//verify the record exists
 	merkleRecordKey := treeGetRecordKey(usernameHashed, passwordHashed, cIdNameHashed)
@@ -620,13 +638,15 @@ func treeDeleteRecord(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHas
 
 	if subTree.Has(merkleRecordKey) == false ||
 		cIdListExists == false {
-		return false
+		err = errors.New("record to delete doesn't exist")
+		return
 	}
 
 	//delete the main record from the merkle tree
 	_, successfulRemove := subTree.Remove(merkleRecordKey)
 	if successfulRemove == false {
-		return false
+		err = errors.New("error deleting the record from subTree")
+		return
 	}
 
 	//delete the index from the cIdName list
@@ -634,11 +654,10 @@ func treeDeleteRecord(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHas
 	newCIdListValues := strings.Replace(oldCIdListValues, "/"+cIdNameEncrypted+"/", "/", 1)
 	subTree.Set(cIdListKey, []byte(newCIdListValues))
 
+	fmt.Println(newCIdListValues)
+
 	//save the subTree
-	err = saveSubTree(subTree, state, usernameHashed, passwordHashed)
-	if err != nil {
-		return false
-	}
+	saveSubTree(subTree, state, usernameHashed, passwordHashed)
 
 	//If there are no more values within the CIdList, then delete the CIdList
 	//   as well as the main username password sub tree
@@ -648,13 +667,14 @@ func treeDeleteRecord(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHas
 		state.Remove(treeGetMapKey(usernameHashed, passwordHashed))
 	}
 
-	return true
+	return
 }
 
-func treeGetCIdListEncryptedCIdName(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameUnencrypted,
+func treeGetCIdListEncryptedCIdName(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameUnencrypted,
 	hashInputCIdNameEncryption string) (cIdNameOrigEncrypted string, err error) {
 
-	subTree, err := loadSubTree(dbIn, state, usernameHashed, passwordHashed)
+	var subTree merkle.Tree
+	subTree, err = loadSubTree(dbIn, state, usernameHashed, passwordHashed)
 	if err != nil {
 		return
 	}
@@ -675,8 +695,8 @@ func treeGetCIdListEncryptedCIdName(dbIn db.DB, state merkle.Tree, usernameHashe
 		if len(cIdNames[i]) < 1 {
 			continue
 		}
-		tempCIdNameDecrypted, err2 := readDecrypted(hashInputCIdNameEncryption, cIdNames[i])
-		err = err2
+		var tempCIdNameDecrypted string
+		tempCIdNameDecrypted, err = readDecrypted(hashInputCIdNameEncryption, cIdNames[i])
 
 		//remove record from master list and merkle tree
 		if cIdNameUnencrypted == tempCIdNameDecrypted {
@@ -688,7 +708,7 @@ func treeGetCIdListEncryptedCIdName(dbIn db.DB, state merkle.Tree, usernameHashe
 }
 
 //must delete any records with the same cIdName before adding a new record
-func treeNewRecord(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
+func treeNewRecord(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
 	cIdNameEncrypted, cPasswordEncrypted string) (err error) {
 
 	var subTree merkle.Tree
@@ -701,29 +721,26 @@ func treeNewRecord(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHashed
 	if state.Has(mapKey) {
 		subTree, err = loadSubTree(dbIn, state, usernameHashed, passwordHashed)
 		if err != nil {
+			fmt.Println(err)
 			return
 		}
 		_, cIdListValues, _ := subTree.Get(cIdListKey)
 		subTree.Set(cIdListKey, []byte(string(cIdListValues)+cIdNameEncrypted+"/"))
 
 	} else {
-		subTree, err = newSubTree(dbIn, state, usernameHashed, passwordHashed)
-		if err != nil {
-			return
-		}
-
+		subTree = newSubTree(dbIn, state, usernameHashed, passwordHashed)
 		subTree.Set(cIdListKey, []byte("/"+cIdNameEncrypted+"/"))
 	}
 
 	//create the new record in the tree
 	insertKey := treeGetRecordKey(usernameHashed, passwordHashed, cIdNameHashed)
 	insertValues := []byte(cPasswordEncrypted)
-	success := subTree.Set(insertKey, insertValues)
-	if success == false {
-		err = errors.New("failed to save record in subtree")
-		return
-	}
-	err = saveSubTree(subTree, state, usernameHashed, passwordHashed)
+	subTree.Set(insertKey, insertValues)
+
+	saveSubTree(subTree, state, usernameHashed, passwordHashed)
+
+	fmt.Println("state num records: " + strconv.Itoa(state.Size()))
+	fmt.Println("subTree num records: " + strconv.Itoa(subTree.Size()))
 
 	return
 }
