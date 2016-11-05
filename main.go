@@ -7,21 +7,22 @@
 //  (__)__)  (__)  (__)(__)    (__)      \_)-'  '-(_/(__) (__) (__)  (__)\.)   (_/
 //
 //  "A cryptographically secure password storage web-utility with distributed consensus using tendermint"
-//
-//  **for core functionality/usage examples see passwerk/passwerk_TMSP/passwerk_TMSP.go
 
 package main
 
 import (
 	"flag"
 	"fmt"
+	"io"
+	"os"
+
+	"passwerk/pwkTMSP"
+	"passwerk/ui"
+
 	. "github.com/tendermint/go-common"
 	"github.com/tendermint/go-db"
 	"github.com/tendermint/go-merkle"
 	"github.com/tendermint/tmsp/server"
-	"io"
-	"os"
-	"passwerk/passwerkTMSP"
 )
 
 func main() {
@@ -30,9 +31,13 @@ func main() {
 	tmspPtr := flag.String("tmsp", "socket", "socket | grpc")
 	flag.Parse()
 
-	//setup the persistent merkle tree to be used by both the UI and tendermint
+	/////////////////////////////////////
+	//  Load Database
+	/////////////////////////////////////
+
+	//setup the persistent merkle tree to be used by both the UI and TMSP
 	dbPath := "db"
-	oldDBNotPresent, err := IsDirEmpty(dbPath)
+	oldDBNotPresent, err := isDirEmpty(dbPath)
 	if err != nil {
 		Exit(err.Error())
 	}
@@ -54,8 +59,18 @@ func main() {
 
 	state.Load(passwerkDB.Get([]byte(merkleHashDBkey)))
 
+	////////////////////////////////////
+	//  Start UI
+	////////////////////////////////////
+
+	go ui.HttpListener(state, passwerkDB, merkleHashDBkey)
+
+	////////////////////////////////////
+	//  Start TMSP
+	////////////////////////////////////
+
 	// Start the listener
-	_, err = server.NewServer(*addrPtr, *tmspPtr, passwerkTMSP.NewPasswerkApplication(state, passwerkDB, merkleHashDBkey))
+	_, err = server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(state, passwerkDB, merkleHashDBkey))
 	if err != nil {
 		Exit(err.Error())
 	}
@@ -66,7 +81,7 @@ func main() {
 	})
 }
 
-func IsDirEmpty(name string) (bool, error) {
+func isDirEmpty(name string) (bool, error) {
 	f, err := os.Open(name)
 	if err != nil {
 		return false, err
