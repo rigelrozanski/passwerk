@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 
+	cmn "passwerk/common"
 	cry "passwerk/cryptoMgt"
 
 	"github.com/tendermint/go-db"
@@ -18,8 +20,8 @@ import (
 //  are added to the keys of all the merkleTree Records
 //  For the sub tree values, there is an additional prefix
 //  of the hex-string of the hash of username/password
-const treeKeyPrefix4SubTree string = "S"
-const treeKeyPrefix4SubTreeValue string = "V"
+const keyPrefix4SubTree string = "S"
+const keyPrefix4SubTreeValue string = "V"
 const merkleCacheSize int = 0
 
 ///////////////////////////
@@ -27,14 +29,14 @@ const merkleCacheSize int = 0
 //////////////////////////
 
 func GetMapKey(usernameHashed, passwordHashed string) []byte {
-	return []byte(path.Join(treeKeyPrefix4SubTree, usernameHashed, passwordHashed))
+	return []byte(path.Join(keyPrefix4SubTree, usernameHashed, passwordHashed))
 }
 
 func GetIdListKey(usernameHashed, passwordHashed string) []byte {
-	return []byte(path.Join(treeKeyPrefix4SubTreeValue, usernameHashed, passwordHashed))
+	return []byte(path.Join(keyPrefix4SubTreeValue, usernameHashed, passwordHashed))
 }
 func GetRecordKey(usernameHashed, passwordHashed, cIdNameHashed string) []byte {
-	return []byte(path.Join(treeKeyPrefix4SubTreeValue, usernameHashed, passwordHashed, cIdNameHashed))
+	return []byte(path.Join(keyPrefix4SubTreeValue, usernameHashed, passwordHashed, cIdNameHashed))
 }
 
 ///////////////////////////
@@ -43,9 +45,9 @@ func GetRecordKey(usernameHashed, passwordHashed, cIdNameHashed string) []byte {
 
 //the momma merkle tree has sub-merkle tree state (output for .Save())
 // stored as the value in the key-value pair in the momma tree
-func LoadSubTree(dbIn *db.DB, mommaTree merkle.Tree, usernameHashed, passwordHashed string) (merkle.Tree, error) {
+func LoadSubTree(dbIn db.DB, mommaTree cmn.MerkleTreeReadOnly, usernameHashed, passwordHashed string) (merkle.Tree, error) {
 
-	subTree := merkle.NewIAVLTree(merkleCacheSize, *dbIn)
+	subTree := merkle.NewIAVLTree(merkleCacheSize, dbIn)
 	_, treeOutHash2Load, exists := mommaTree.Get(GetMapKey(usernameHashed, passwordHashed))
 	if exists == false {
 		return nil, errors.New("sub tree doesn't exist")
@@ -60,64 +62,184 @@ func SaveSubTree(subTree, mommaTree merkle.Tree, usernameHashed, passwordHashed 
 	mommaTree.Set(GetMapKey(usernameHashed, passwordHashed), subTree.Save())
 }
 
-func NewSubTree(dbIn *db.DB, mommaTree merkle.Tree, usernameHashed, passwordHashed string) merkle.Tree {
-	subTree := merkle.NewIAVLTree(merkleCacheSize, *dbIn)
+func NewSubTree(dbIn db.DB, mommaTree merkle.Tree, usernameHashed, passwordHashed string) merkle.Tree {
+	subTree := merkle.NewIAVLTree(merkleCacheSize, dbIn)
 	mommaTree.Set(GetMapKey(usernameHashed, passwordHashed), subTree.Save())
 	return subTree
 }
 
-///////////////////////////
-/// Core Functions
-//////////////////////////
+/////////////////////////////////////////////
+// READ ONLY Tree Operations
+/////////////////////////////////////////////
 
-func Authenticate(state merkle.Tree, usernameHashed, passwordHashed string) bool {
+/////////////////////////////////////
+// temp DB management operations
+
+func openTempCopyDB(mu *sync.Mutex, dbIn cmn.DBReadOnly, tempName string) db.DB {
+	cmn.CopyDir(path.Join(dbIn.DBPath, dbIn.DBName+".db"), path.Join(dbIn.DBPath, tempName+".db"))
+	mu.Unlock()
+	out := db.NewDB(tempName, db.DBBackendLevelDB, dbIn.DBPath)
+	mu.Lock()
+	return out
+}
+
+func deleteTempCopyDB(mu *sync.Mutex, dbDir, tempName string, tempDB db.DB) error {
+	tempDB.Close()
+	mu.Unlock()
+	out := cmn.DeleteDir(path.Join(dbDir, tempName+".db"))
+	mu.Lock()
+	return out
+}
+
+const tempDBName string = "temp"
+
+/////////////////////////////////////
+
+func Authenticate(state cmn.MerkleTreeReadOnly, usernameHashed, passwordHashed string) bool {
 	mapKey := GetMapKey(usernameHashed, passwordHashed)
 	return state.Has(mapKey)
 }
 
-func RetrieveCIdNames(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed,
-	hashInputCIdNameEncryption string) (cIdNamesEncrypted []string, err error) {
+func RetrieveCIdNames(mu *sync.Mutex, dbIn cmn.DBReadOnly, state cmn.MerkleTreeReadOnly, usernameHashed, passwordHashed,
+	hashInputCIdNameEncryption string) (cIdNames []string, err error) {
 
-	subTree, err := LoadSubTree(dbIn, state, usernameHashed, passwordHashed)
+	tempCopyDB := openTempCopyDB(mu, dbIn, tempDBName)
 
-	cIdListKey := GetIdListKey(usernameHashed, passwordHashed)
-	if subTree.Has(cIdListKey) {
-		_, mapValues, _ := subTree.Get(cIdListKey)
+	///////////////////////////////////////////////////////////////////////////////
+	main := func() {
+
+		var subTree merkle.Tree
+
+		subTree, err = LoadSubTree(tempCopyDB, state, usernameHashed, passwordHashed)
+
+		cIdListKey := GetIdListKey(usernameHashed, passwordHashed)
+		if subTree.Has(cIdListKey) {
+			_, mapValues, _ := subTree.Get(cIdListKey)
+
+			//get the encrypted cIdNames
+			cIdNames = strings.Split(string(mapValues), "/")
+
+			//decrypt the cIdNames
+			for i := 0; i < len(cIdNames); i++ {
+
+				if len(cIdNames[i]) < 1 {
+					continue
+				}
+				cIdNames[i], err = cry.ReadDecrypted(hashInputCIdNameEncryption, cIdNames[i])
+			}
+			return
+		} else {
+			err = errors.New("badAuthentication")
+			return
+		}
+	}
+	///////////////////////////////////////////////////////////////////////////////
+
+	main()
+	if err != nil {
+		return
+	}
+
+	//remove the temp db
+	err = deleteTempCopyDB(mu, dbIn.DBPath, tempDBName, tempCopyDB)
+
+	return
+}
+
+func RetrieveCPassword(mu *sync.Mutex, dbIn cmn.DBReadOnly, state cmn.MerkleTreeReadOnly, usernameHashed, passwordHashed, cIdNameHashed,
+	hashInputCPasswordEncryption string) (cPassword string, err error) {
+
+	tempCopyDB := openTempCopyDB(mu, dbIn, tempDBName)
+
+	//////////////////////////////////////////////////////////////////////////////
+	main := func() {
+		var subTree merkle.Tree
+
+		subTree, err = LoadSubTree(tempCopyDB, state, usernameHashed, passwordHashed)
+
+		cPasswordKey := GetRecordKey(usernameHashed, passwordHashed, cIdNameHashed)
+		_, cPasswordEncrypted, exists := subTree.Get(cPasswordKey)
+		if exists {
+			cPassword, err = cry.ReadDecrypted(hashInputCPasswordEncryption, string(cPasswordEncrypted))
+			return
+		} else {
+			err = errors.New("invalidCIdName")
+			return
+		}
+	}
+	//////////////////////////////////////////////////////////////////////////////
+
+	main()
+	if err != nil {
+		return
+	}
+
+	//remove the temp db
+	err = deleteTempCopyDB(mu, dbIn.DBPath, tempDBName, tempCopyDB)
+
+	return
+}
+
+func GetCIdListEncryptedCIdName(mu *sync.Mutex, dbIn cmn.DBReadOnly, state cmn.MerkleTreeReadOnly, usernameHashed, passwordHashed, cIdNameUnencrypted,
+	hashInputCIdNameEncryption string) (cIdNameOrigEncrypted string, err error) {
+
+	tempCopyDB := openTempCopyDB(mu, dbIn, tempDBName)
+
+	//////////////////////////////////////////////////////////////////////////////
+	main := func() {
+		var subTree merkle.Tree
+
+		subTree, err = LoadSubTree(tempCopyDB, state, usernameHashed, passwordHashed)
+
+		if err != nil {
+			return
+		}
+
+		cIdListKey := GetIdListKey(usernameHashed, passwordHashed)
+		_, cIdListValues, exists := subTree.Get(cIdListKey)
+
+		if exists == false {
+			err = errors.New("sub tree doesn't exist")
+			return
+		}
 
 		//get the encrypted cIdNames
-		cIdNames := strings.Split(string(mapValues), "/")
+		cIdNames := strings.Split(string(cIdListValues), "/")
 
-		//decrypt the cIdNames
+		//determine the correct value from the cIdNames array and return
 		for i := 0; i < len(cIdNames); i++ {
 			if len(cIdNames[i]) < 1 {
 				continue
 			}
-			cIdNames[i], err = cry.ReadDecrypted(hashInputCIdNameEncryption, cIdNames[i])
+			var tempCIdNameDecrypted string
+			tempCIdNameDecrypted, err = cry.ReadDecrypted(hashInputCIdNameEncryption, cIdNames[i])
+
+			//remove record from master list and merkle tree
+			if cIdNameUnencrypted == tempCIdNameDecrypted {
+				cIdNameOrigEncrypted = cIdNames[i]
+			}
 		}
-		return cIdNames, err
-	} else {
-		err = errors.New("badAuthentication")
-		return nil, err
-	}
-}
 
-func RetrieveCPassword(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
-	hashInputCPasswordEncryption string) (cPassword string, err error) {
-
-	subTree, err := LoadSubTree(dbIn, state, usernameHashed, passwordHashed)
-
-	cPasswordKey := GetRecordKey(usernameHashed, passwordHashed, cIdNameHashed)
-	_, cPasswordEncrypted, exists := subTree.Get(cPasswordKey)
-	if exists {
-		cPassword, err = cry.ReadDecrypted(hashInputCPasswordEncryption, string(cPasswordEncrypted))
-		return
-	} else {
-		err = errors.New("invalidCIdName")
 		return
 	}
+	///////////////////////////////////////////////////////////////////////////////
+
+	main()
+	if err != nil {
+		return
+	}
+
+	//remove the temp db
+	err = deleteTempCopyDB(mu, dbIn.DBPath, tempDBName, tempCopyDB)
+
+	return
 }
 
-func DeleteRecord(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
+/////////////////////////////////////////////
+// WRITE Tree Operations
+////////////////////////////////////////////
+
+func DeleteRecord(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
 	cIdNameEncrypted string) (err error) {
 
 	var subTree merkle.Tree
@@ -161,45 +283,8 @@ func DeleteRecord(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed
 	return
 }
 
-func GetCIdListEncryptedCIdName(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameUnencrypted,
-	hashInputCIdNameEncryption string) (cIdNameOrigEncrypted string, err error) {
-
-	var subTree merkle.Tree
-	subTree, err = LoadSubTree(dbIn, state, usernameHashed, passwordHashed)
-	if err != nil {
-		return
-	}
-
-	cIdListKey := GetIdListKey(usernameHashed, passwordHashed)
-	_, cIdListValues, exists := subTree.Get(cIdListKey)
-
-	if exists == false {
-		err = errors.New("sub tree doesn't exist")
-		return
-	}
-
-	//get the encrypted cIdNames
-	cIdNames := strings.Split(string(cIdListValues), "/")
-
-	//determine the correct value from the cIdNames array and return
-	for i := 0; i < len(cIdNames); i++ {
-		if len(cIdNames[i]) < 1 {
-			continue
-		}
-		var tempCIdNameDecrypted string
-		tempCIdNameDecrypted, err = cry.ReadDecrypted(hashInputCIdNameEncryption, cIdNames[i])
-
-		//remove record from master list and merkle tree
-		if cIdNameUnencrypted == tempCIdNameDecrypted {
-			cIdNameOrigEncrypted = cIdNames[i]
-		}
-	}
-
-	return
-}
-
 //must delete any records with the same cIdName before adding a new record
-func NewRecord(dbIn *db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
+func NewRecord(dbIn db.DB, state merkle.Tree, usernameHashed, passwordHashed, cIdNameHashed,
 	cIdNameEncrypted, cPasswordEncrypted string) (err error) {
 
 	var subTree merkle.Tree

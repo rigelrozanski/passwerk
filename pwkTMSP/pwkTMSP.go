@@ -3,6 +3,7 @@ package pwkTMSP
 
 import (
 	"strings"
+	"sync"
 
 	tree "passwerk/treeMgt"
 
@@ -12,15 +13,17 @@ import (
 	"github.com/tendermint/tmsp/types"
 )
 
-type PasswerkApplication struct {
+type PasswerkTMSP struct {
+	mu           *sync.Mutex
 	state        merkle.Tree
 	stateDB      db.DB
 	stateHashKey []byte
 }
 
-func NewPasswerkApplication(stateIn merkle.Tree, stateDBIn db.DB, stateHashKeyIn []byte) *PasswerkApplication {
+func NewPasswerkApplication(muIn *sync.Mutex, stateIn merkle.Tree, stateDBIn db.DB, stateHashKeyIn []byte) *PasswerkTMSP {
 
-	app := &PasswerkApplication{
+	app := &PasswerkTMSP{
+		mu:           muIn,
 		state:        stateIn,
 		stateDB:      stateDBIn,
 		stateHashKey: stateHashKeyIn,
@@ -30,17 +33,17 @@ func NewPasswerkApplication(stateIn merkle.Tree, stateDBIn db.DB, stateHashKeyIn
 }
 
 //returns the size of the tx
-func (app *PasswerkApplication) Info() string {
+func (app *PasswerkTMSP) Info() string {
 	return Fmt("size:%v", app.state.Size())
 }
 
 //SetOption is currently unsupported
-func (app *PasswerkApplication) SetOption(key, value string) (log string) {
+func (app *PasswerkTMSP) SetOption(key, value string) (log string) {
 	return ""
 }
 
 //Because the tx is saved in the mempool, all tx items passed to AppendTx have already been Hashed/Encrypted
-func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
+func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 
 	//perform a CheckTx to prevent tx errors
 	checkTxResult := app.CheckTx(tx)
@@ -48,6 +51,16 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 		return checkTxResult
 	}
 
+	//lock and perform main appendTx functionality
+	app.mu.Lock()
+	out := app.appendTx(tx)
+	app.mu.Unlock()
+
+	return out
+}
+
+//core functionality of AppendTx, added to avoid code duplication of app.mu.Unlock() on return
+func (app *PasswerkTMSP) appendTx(tx []byte) types.Result {
 	//seperate the tx into all the parts to be written
 	parts := strings.Split(string(tx), "/")
 
@@ -57,7 +70,7 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 	switch operationalOption {
 	case "writing":
 		err := tree.NewRecord(
-			&app.stateDB,
+			app.stateDB,
 			app.state,
 			parts[2], //usernameHashed
 			parts[3], //passwordashed
@@ -70,7 +83,7 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 		}
 	case "deleting":
 		err := tree.DeleteRecord(
-			&app.stateDB,
+			app.stateDB,
 			app.state,
 			parts[2], //usernameHashed
 			parts[3], //passwordHashed
@@ -98,8 +111,18 @@ func (app *PasswerkApplication) AppendTx(tx []byte) types.Result {
 //     as passwerk applications change but under the current system
 //     there are no forseen circumstances in which there will be a
 //     conflict if any two transactions are submitted simultaniously
-//     from multiple users on the same system.
-func (app *PasswerkApplication) CheckTx(tx []byte) types.Result {
+//     from multiple uses on the same system.
+func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
+
+	//lock and perform main checkTx funtionality
+	app.mu.Lock()
+	out := app.checkTx(tx)
+	app.mu.Unlock()
+	return out
+}
+
+//core functionality of CheckTx, added to avoid code duplication of app.mu.Unlock() on return
+func (app *PasswerkTMSP) checkTx(tx []byte) types.Result {
 
 	//seperate the tx into all the parts to be written
 	parts := strings.Split(string(tx), "/")
@@ -125,7 +148,7 @@ func (app *PasswerkApplication) CheckTx(tx []byte) types.Result {
 		cIdNameHashed := parts[4]
 		cIdNameEncrypted := parts[5]
 
-		subTree, err := tree.LoadSubTree(&app.stateDB, app.state, usernameHashed, passwordHashed)
+		subTree, err := tree.LoadSubTree(app.stateDB, app.state, usernameHashed, passwordHashed)
 		if err != nil {
 			return badReturn("bad sub tree")
 		}
@@ -148,13 +171,16 @@ func (app *PasswerkApplication) CheckTx(tx []byte) types.Result {
 	return types.OK
 }
 
-//return the hash of the merkle tree
-func (app *PasswerkApplication) Commit() types.Result {
-	return types.NewResultOK(app.state.Hash(), "")
+//return the hash of the merkle tree, use locks
+func (app *PasswerkTMSP) Commit() types.Result {
+	app.mu.Lock()
+	out := types.NewResultOK(app.state.Hash(), "")
+	app.mu.Unlock()
+	return out
 }
 
 //currently Query is unsupported but arguably should be supported for reading_IdNames and reading_Password values for operationalOptions
-func (app *PasswerkApplication) Query(query []byte) types.Result {
+func (app *PasswerkTMSP) Query(query []byte) types.Result {
 	return types.NewResultOK(nil, Fmt("Query is not supported"))
 }
 

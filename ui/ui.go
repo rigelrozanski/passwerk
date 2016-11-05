@@ -9,27 +9,28 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
+	cmn "passwerk/common"
 	cry "passwerk/cryptoMgt"
 	tree "passwerk/treeMgt"
-
-	"github.com/tendermint/go-db"
-	"github.com/tendermint/go-merkle"
 )
 
 const portPasswerkUI string = "8080"
 const portTendermint string = "46657"
 
-type PasswerkApplication struct {
-	state        merkle.Tree
-	stateDB      db.DB
+type UIApp struct {
+	mu           *sync.Mutex
+	state        cmn.MerkleTreeReadOnly
+	stateDB      cmn.DBReadOnly
 	stateHashKey []byte
 }
 
-func HttpListener(stateIn merkle.Tree, stateDBIn db.DB, stateHashKeyIn []byte) {
+func HTTPListener(muIn *sync.Mutex, stateIn cmn.MerkleTreeReadOnly, stateDBIn cmn.DBReadOnly, stateHashKeyIn []byte) {
 
-	app := &PasswerkApplication{
+	app := &UIApp{
+		mu:           muIn,
 		state:        stateIn,
 		stateDB:      stateDBIn,
 		stateHashKey: stateHashKeyIn,
@@ -41,7 +42,10 @@ func HttpListener(stateIn merkle.Tree, stateDBIn db.DB, stateHashKeyIn []byte) {
 
 //This method performs a broadcast_tx_commit call to tendermint
 //<incomplete code> rather than returning the raw html, data should be parsed and return the code, data, and log
-func broadcastTxFromString(tx string) string {
+func (app *UIApp) broadcastTxFromString(tx string) string {
+
+	app.mu.Unlock()
+
 	urlStringBytes := []byte(tx)
 	urlHexString := hex.EncodeToString(urlStringBytes[:])
 
@@ -53,36 +57,39 @@ func broadcastTxFromString(tx string) string {
 	}
 	resp.Body.Close()
 
+	app.mu.Lock()
+
 	return htmlString
 }
 
 //function handles http requests from the passwerk local host (not tendermint local host)
-func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Request) {
+func (app *UIApp) UIInputHandler(w http.ResponseWriter, r *http.Request) {
 
-	var err error
+	app.mu.Lock()
 
-	UIoutput := "" //variable which holds the final output to be written by the program
 	urlString := r.URL.Path[1:]
-	speachBubble := "i h8 myslf"   //speach bubble text for the ASCII assailant
+	UIoutput := getUIoutput(app.performOperation(urlString))
+	fmt.Fprintf(w, UIoutput)
+
+	app.mu.Unlock()
+}
+
+func (app *UIApp) performOperation(urlString string) (err error,
+	urlUsername, //		2nd URL section - <manditory> master username to be read or written from
+	urlPassword, //		3rd URL section - <manditory> master password to be read or written with
+	urlCIdName, //		4th URL section - <optional> cipherable indicator name for the password
+	speachBubble, //	speach bubble text for the ASCII assailant
+	idNameList string, //	list of all the stored records which will be output if requested by the user (readingIdNames)
+) {
+
+	//definitions
+	var urlOptionText string       //1st URL section - <manditory>  indicates the user write mode
+	var urlCPassword string        //5th URL section - <optional> cipherable password to be stored
 	notSelected := "<notSelected>" //text indicating that a piece of URL input has not been submitted
-
-	var idNameList, //		list of all the stored records which will be output if requested by the user (readingIdNames)
-		urlOptionText, //	1st URL section - <manditory>  indicates the user write mode
-		urlUsername, //		2nd URL section - <manditory> master username to be read or written from
-		urlPassword, //		3rd URL section - <manditory> master password to be read or written with
-		urlCIdName, //		4th URL section - <optional> cipherable indicator name for the password
-		urlCPassword string //	5th URL section - <optional> cipherable password to be stored
-
-	//This function writes the user interface, used always before exiting the UIInputHandler
-	writeUI := func() {
-		UIoutput = getUIoutput(err, urlUsername, urlPassword, urlCIdName, speachBubble, idNameList)
-		fmt.Fprintf(w, UIoutput)
-	}
 
 	//if there are less than three variables provided make a fuss
 	if len(strings.Split(urlString, `/`)) < 3 {
 		err = errors.New("not enough URL arguments")
-		writeUI()
 		return
 	}
 
@@ -112,7 +119,6 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 	operationalOption, err = getOperationalOption(notSelected, urlOptionText, urlUsername,
 		urlPassword, urlCIdName, urlCPassword)
 	if err != nil {
-		writeUI()
 		return
 	}
 
@@ -120,7 +126,6 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 	if operationalOption != "writing" &&
 		tree.Authenticate(app.state, cry.GetHashedHexString(urlUsername), cry.GetHashedHexString(urlPassword)) == false {
 		err = errors.New("badAuthentication")
-		writeUI()
 		return
 	}
 
@@ -130,14 +135,14 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 
 		var idNameListArray []string
 		idNameListArray, err = tree.RetrieveCIdNames(
-			&app.stateDB,
+			app.mu,
+			app.stateDB,
 			app.state,
 			cry.GetHashedHexString(urlUsername),
 			cry.GetHashedHexString(urlPassword),
 			HashInputCIdNameEncryption,
 		)
 		if err != nil {
-			writeUI()
 			return
 		}
 
@@ -150,7 +155,8 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 	case "readingPassword":
 		var cPasswordDecrypted string
 		cPasswordDecrypted, err = tree.RetrieveCPassword(
-			&app.stateDB,
+			app.mu,
+			app.stateDB,
 			app.state,
 			cry.GetHashedHexString(urlUsername),
 			cry.GetHashedHexString(urlPassword),
@@ -158,7 +164,6 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 			HashInputCPasswordEncryption,
 		)
 		if err != nil {
-			writeUI()
 			return
 		}
 		speachBubble = cPasswordDecrypted
@@ -167,7 +172,8 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 		//determine encrypted text to delete
 		var mapCIdNameEncrypted2Delete string
 		mapCIdNameEncrypted2Delete, err = tree.GetCIdListEncryptedCIdName(
-			&app.stateDB,
+			app.mu,
+			app.stateDB,
 			app.state,
 			cry.GetHashedHexString(urlUsername),
 			cry.GetHashedHexString(urlPassword),
@@ -176,7 +182,6 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 		)
 
 		if err != nil {
-			writeUI()
 			return
 		}
 
@@ -190,12 +195,11 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 				cry.GetHashedHexString(urlPassword),
 				cry.GetHashedHexString(urlCIdName),
 				mapCIdNameEncrypted2Delete)
-			broadcastTxFromString(tx2broadcast)
+			app.broadcastTxFromString(tx2broadcast)
 
 			speachBubble = "*Chuckles* - nvr heard of no " + urlCIdName + " before"
 		} else {
 			err = errors.New("invalidCIdName")
-			writeUI()
 			return
 		}
 
@@ -205,7 +209,8 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 		//  it doesn't really matter if there is nothing to delete
 		var mapCIdNameEncrypted2Delete string
 		mapCIdNameEncrypted2Delete, err = tree.GetCIdListEncryptedCIdName(
-			&app.stateDB,
+			app.mu,
+			app.stateDB,
 			app.state,
 			cry.GetHashedHexString(urlUsername),
 			cry.GetHashedHexString(urlPassword),
@@ -222,7 +227,7 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 				cry.GetHashedHexString(urlPassword),
 				cry.GetHashedHexString(urlCIdName),
 				mapCIdNameEncrypted2Delete)
-			broadcastTxFromString(tx2broadcast)
+			app.broadcastTxFromString(tx2broadcast)
 		}
 
 		//reset the error term because it doesn't matter if the record was non-existent
@@ -238,13 +243,12 @@ func (app *PasswerkApplication) UIInputHandler(w http.ResponseWriter, r *http.Re
 			cry.GetHashedHexString(urlCIdName),
 			cry.GetEncryptedHexString(HashInputCIdNameEncryption, urlCIdName),
 			cry.GetEncryptedHexString(HashInputCPasswordEncryption, urlCPassword))
-		broadcastTxFromString(tx2broadcast)
+		app.broadcastTxFromString(tx2broadcast)
 
 		speachBubble = "Roger That"
 	}
 
 	//Writing output
-	writeUI()
 	return
 }
 
@@ -306,6 +310,10 @@ func getUIoutput(err error, urlUsername, urlPassword, urlCIdName, speachBubble, 
 		default:
 			speachBubble = err.Error()
 		}
+	}
+
+	if len(speachBubble) < 1 {
+		speachBubble = "i h8 myslf"
 	}
 
 	return "passwerk" + `

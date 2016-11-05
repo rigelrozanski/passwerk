@@ -13,9 +13,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
-	"os"
+	"sync"
 
+	cmn "passwerk/common"
 	"passwerk/pwkTMSP"
 	"passwerk/ui"
 
@@ -31,16 +31,17 @@ func main() {
 	tmspPtr := flag.String("tmsp", "socket", "socket | grpc")
 	flag.Parse()
 
+	//lock for data access
+	var mu = &sync.Mutex{}
+
 	/////////////////////////////////////
 	//  Load Database
 	/////////////////////////////////////
 
 	//setup the persistent merkle tree to be used by both the UI and TMSP
 	dbPath := "db"
-	oldDBNotPresent, err := isDirEmpty(dbPath)
-	if err != nil {
-		Exit(err.Error())
-	}
+	dbName := "passwerkDB"
+	oldDBNotPresent, _ := cmn.IsDirEmpty(dbPath)
 
 	if oldDBNotPresent == true {
 		fmt.Println("no existing db, creating new db")
@@ -48,8 +49,10 @@ func main() {
 		fmt.Println("loading existing db")
 	}
 
-	passwerkDB := db.NewDB("passwerkDB", db.DBBackendLevelDB, dbPath)
-	state := merkle.NewIAVLTree(0, passwerkDB) //right now cachesize is set to 0, for production purposes, this should maybe be increased
+	passwerkDB := db.NewDB(dbName, db.DBBackendLevelDB, dbPath)
+
+	var state merkle.Tree
+	state = merkle.NewIAVLTree(0, passwerkDB) //right now cachesize is set to 0, for production purposes, this should maybe be increased
 
 	//either load, or set and load the dbHash
 	merkleHashDBkey := []byte("mommaDBHash")
@@ -63,14 +66,19 @@ func main() {
 	//  Start UI
 	////////////////////////////////////
 
-	go ui.HttpListener(state, passwerkDB, merkleHashDBkey)
+	stateReadOnly := state.(cmn.MerkleTreeReadOnly)
+	dBReadOnly := cmn.DBReadOnly{DBFile: passwerkDB,
+		DBPath: dbPath,
+		DBName: dbName,
+	}
+	go ui.HTTPListener(mu, stateReadOnly, dBReadOnly, merkleHashDBkey)
 
 	////////////////////////////////////
 	//  Start TMSP
 	////////////////////////////////////
 
 	// Start the listener
-	_, err = server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(state, passwerkDB, merkleHashDBkey))
+	_, err := server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(mu, state, passwerkDB, merkleHashDBkey))
 	if err != nil {
 		Exit(err.Error())
 	}
@@ -79,18 +87,4 @@ func main() {
 	TrapSignal(func() {
 		// Cleanup
 	})
-}
-
-func isDirEmpty(name string) (bool, error) {
-	f, err := os.Open(name)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	_, err = f.Readdirnames(1) // Or f.Readdir(1)
-	if err == io.EOF {
-		return true, nil
-	}
-	return false, err // Either not empty or error, suits both cases
 }
