@@ -146,7 +146,8 @@ func (ptr *PwkTreeReader) Authenticate() bool {
 //retrieve and decrypte the list of saved passwords under and account
 func (ptr *PwkTreeReader) RetrieveCIdNames() (cIdNames []string, err error) {
 
-	tempCopyDB := openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
+	var tempCopyDB db.DB
+	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
 
 	///////////////////////////////////////////////////////////////////////////////
 	main := func() {
@@ -192,7 +193,8 @@ func (ptr *PwkTreeReader) RetrieveCIdNames() (cIdNames []string, err error) {
 //retrieve and decrypt a saved password given an account and id information
 func (ptr *PwkTreeReader) RetrieveCPassword() (cPassword string, err error) {
 
-	tempCopyDB := openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
+	var tempCopyDB db.DB
+	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
 
 	//////////////////////////////////////////////////////////////////////////////
 	main := func() {
@@ -226,7 +228,8 @@ func (ptr *PwkTreeReader) RetrieveCPassword() (cPassword string, err error) {
 // retrieve the original encrypted id text, used for deleting from the stored list of ids for a user
 func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted string, err error) {
 
-	tempCopyDB := openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
+	var tempCopyDB db.DB
+	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
 
 	//////////////////////////////////////////////////////////////////////////////
 	main := func() {
@@ -286,10 +289,20 @@ func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted str
 // for reading purposes only (hence, don't modify the original DB at all
 // while reading)
 
-func openTempCopyDB(mu *sync.Mutex, dbIn cmn.DBReadOnly, tempName string) db.DB {
+func openTempCopyDB(mu *sync.Mutex, dbIn cmn.DBReadOnly, tempName string) (tempDB db.DB, err error) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("panic while generating temp DB, retrying")
+
+			tempDB = nil
+			err = errors.New("trouble generating tempDB, please retry")
+		}
+	}()
 
 	cmn.CopyDir(path.Join(dbIn.DBPath, dbIn.DBName+".db"), path.Join(dbIn.DBPath, tempName+".db"))
-	return db.NewDB(tempName, db.DBBackendLevelDB, dbIn.DBPath)
+	tempDB = db.NewDB(tempName, db.DBBackendLevelDB, dbIn.DBPath)
+	return
 }
 
 func deleteTempCopyDB(mu *sync.Mutex, dbDir, tempName string, tempDB db.DB) error {
