@@ -110,10 +110,14 @@ func (app *UIApp) performOperation(urlString string) (err error,
 	urlCIdName = urlStringSplit[3]
 	urlCPassword = urlStringSplit[4]
 
+	usernameHashed := cry.GetHashedHexString(urlUsername)
+	passwordHashed := cry.GetHashedHexString(urlPassword)
+	cIdNameHashed := cry.GetHashedHexString(urlCIdName)
+
 	//These two strings generated the hashes which are used for encryption and decryption of passwords
 	//<sloppy code> is there maybe a more secure mechanism to create a shared key equivalent?
-	HashInputCIdNameEncryption := path.Join(urlUsername, urlPassword)
-	HashInputCPasswordEncryption := path.Join(urlCIdName, urlPassword, urlUsername)
+	hashInputCIdNameEncryption := path.Join(urlUsername, urlPassword)
+	hashInputCPasswordEncryption := path.Join(urlCIdName, urlPassword, urlUsername)
 
 	var operationalOption string
 	operationalOption, err = getOperationalOption(notSelected, urlOptionText, urlUsername,
@@ -122,9 +126,20 @@ func (app *UIApp) performOperation(urlString string) (err error,
 		return
 	}
 
+	ptr := &tree.PwkTreeReader{
+		Mu:                           app.mu,
+		Db:                           app.stateDB,
+		Tree:                         app.state,
+		UsernameHashed:               usernameHashed,
+		PasswordHashed:               passwordHashed,
+		CIdNameUnencrypted:           urlCIdName,
+		HashInputCIdNameEncryption:   hashInputCIdNameEncryption,
+		HashInputCPasswordEncryption: hashInputCPasswordEncryption,
+	}
+
 	//performing authentication (don't need to authenicate for writing passwords)
 	if operationalOption != "writing" &&
-		tree.Authenticate(app.state, cry.GetHashedHexString(urlUsername), cry.GetHashedHexString(urlPassword)) == false {
+		ptr.Authenticate() == false {
 		err = errors.New("badAuthentication")
 		return
 	}
@@ -134,14 +149,7 @@ func (app *UIApp) performOperation(urlString string) (err error,
 	case "readingIdNames":
 
 		var idNameListArray []string
-		idNameListArray, err = tree.RetrieveCIdNames(
-			app.mu,
-			app.stateDB,
-			app.state,
-			cry.GetHashedHexString(urlUsername),
-			cry.GetHashedHexString(urlPassword),
-			HashInputCIdNameEncryption,
-		)
+		idNameListArray, err = ptr.RetrieveCIdNames()
 		if err != nil {
 			return
 		}
@@ -154,15 +162,7 @@ func (app *UIApp) performOperation(urlString string) (err error,
 
 	case "readingPassword":
 		var cPasswordDecrypted string
-		cPasswordDecrypted, err = tree.RetrieveCPassword(
-			app.mu,
-			app.stateDB,
-			app.state,
-			cry.GetHashedHexString(urlUsername),
-			cry.GetHashedHexString(urlPassword),
-			cry.GetHashedHexString(urlCIdName),
-			HashInputCPasswordEncryption,
-		)
+		cPasswordDecrypted, err = ptr.RetrieveCPassword()
 		if err != nil {
 			return
 		}
@@ -171,15 +171,7 @@ func (app *UIApp) performOperation(urlString string) (err error,
 	case "deleting":
 		//determine encrypted text to delete
 		var mapCIdNameEncrypted2Delete string
-		mapCIdNameEncrypted2Delete, err = tree.GetCIdListEncryptedCIdName(
-			app.mu,
-			app.stateDB,
-			app.state,
-			cry.GetHashedHexString(urlUsername),
-			cry.GetHashedHexString(urlPassword),
-			urlCIdName,
-			HashInputCIdNameEncryption,
-		)
+		mapCIdNameEncrypted2Delete, err = ptr.GetCIdListEncryptedCIdName()
 
 		if err != nil {
 			return
@@ -191,9 +183,9 @@ func (app *UIApp) performOperation(urlString string) (err error,
 			tx2broadcast := path.Join(
 				timeStampString(),
 				operationalOption,
-				cry.GetHashedHexString(urlUsername),
-				cry.GetHashedHexString(urlPassword),
-				cry.GetHashedHexString(urlCIdName),
+				usernameHashed,
+				passwordHashed,
+				cIdNameHashed,
 				mapCIdNameEncrypted2Delete)
 			app.broadcastTxFromString(tx2broadcast)
 
@@ -208,24 +200,16 @@ func (app *UIApp) performOperation(urlString string) (err error,
 		//do not worry about error handling here for records that do not exist
 		//  it doesn't really matter if there is nothing to delete
 		var mapCIdNameEncrypted2Delete string
-		mapCIdNameEncrypted2Delete, err = tree.GetCIdListEncryptedCIdName(
-			app.mu,
-			app.stateDB,
-			app.state,
-			cry.GetHashedHexString(urlUsername),
-			cry.GetHashedHexString(urlPassword),
-			urlCIdName,
-			HashInputCIdNameEncryption,
-		)
+		mapCIdNameEncrypted2Delete, err = ptr.GetCIdListEncryptedCIdName()
 		if len(mapCIdNameEncrypted2Delete) >= 0 && err == nil {
 
 			//create he tx then broadcast
 			tx2broadcast := path.Join(
 				timeStampString(),
 				"deleting",
-				cry.GetHashedHexString(urlUsername),
-				cry.GetHashedHexString(urlPassword),
-				cry.GetHashedHexString(urlCIdName),
+				usernameHashed,
+				passwordHashed,
+				cIdNameHashed,
 				mapCIdNameEncrypted2Delete)
 			app.broadcastTxFromString(tx2broadcast)
 		}
@@ -238,11 +222,11 @@ func (app *UIApp) performOperation(urlString string) (err error,
 		tx2broadcast := path.Join(
 			timeStampString(),
 			operationalOption,
-			cry.GetHashedHexString(urlUsername),
-			cry.GetHashedHexString(urlPassword),
-			cry.GetHashedHexString(urlCIdName),
-			cry.GetEncryptedHexString(HashInputCIdNameEncryption, urlCIdName),
-			cry.GetEncryptedHexString(HashInputCPasswordEncryption, urlCPassword))
+			usernameHashed,
+			passwordHashed,
+			cIdNameHashed,
+			cry.GetEncryptedHexString(hashInputCIdNameEncryption, urlCIdName),
+			cry.GetEncryptedHexString(hashInputCPasswordEncryption, urlCPassword))
 		app.broadcastTxFromString(tx2broadcast)
 
 		speachBubble = "Roger That"

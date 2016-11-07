@@ -67,33 +67,27 @@ func (app *PasswerkTMSP) appendTx(tx []byte) types.Result {
 	//The number of parts in the TX are verified upstream within CheckTx
 	operationalOption := parts[1] //part[0] contains the timeStamp which is currently ignored (used to avoid duplicate tx submissions)
 
+	ptw := &tree.PwkTreeWriter{
+		Db:               app.stateDB,
+		Tree:             app.state,
+		UsernameHashed:   parts[2],
+		PasswordHashed:   parts[3],
+		CIdNameHashed:    parts[4],
+		CIdNameEncrypted: parts[5],
+	}
+
 	switch operationalOption {
 	case "writing":
-		err := tree.NewRecord(
-			app.stateDB,
-			app.state,
-			parts[2], //usernameHashed
-			parts[3], //passwordashed
-			parts[4], //cIdNameHashed
-			parts[5], //cIdNameEncrypted
-			parts[6], //cPasswordEncryptedi
-		)
-		if err != nil {
-			return badReturn(err.Error())
-		}
-	case "deleting":
-		err := tree.DeleteRecord(
-			app.stateDB,
-			app.state,
-			parts[2], //usernameHashed
-			parts[3], //passwordHashed
-			parts[4], //cIdNameHashed
-			parts[5], //cIdNameEncrypted
-		)
+		err := ptw.NewRecord(parts[6]) //parts[6] is cPasswordEncrypted
 		if err != nil {
 			return badReturn(err.Error())
 		}
 
+	case "deleting":
+		err := ptw.DeleteRecord()
+		if err != nil {
+			return badReturn(err.Error())
+		}
 	}
 
 	//save the momma-merkle state in the db for persistence
