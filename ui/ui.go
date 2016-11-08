@@ -42,36 +42,46 @@ func HTTPListener(muIn *sync.Mutex, stateIn cmn.MerkleTreeReadOnly, stateDBIn cm
 
 //This method performs a broadcast_tx_commit call to tendermint
 //<incomplete code> rather than returning the raw html, data should be parsed and return the code, data, and log
-func (app *UIApp) broadcastTxFromString(tx string) string {
+func (app *UIApp) broadcastTxFromString(tx string) (htmlString string) {
 
+	//unlock for broadcasting to tendermint
 	app.mu.Unlock()
+
+	//re-lock before leaving the func
+	defer func() {
+		app.mu.Lock()
+	}()
 
 	urlStringBytes := []byte(tx)
 	urlHexString := hex.EncodeToString(urlStringBytes[:])
 
 	resp, err := http.Get(`http://localhost:` + portTendermint + `/broadcast_tx_commit?tx="` + urlHexString + `"`)
 	htmlBytes, err := ioutil.ReadAll(resp.Body)
-	htmlString := string(htmlBytes)
+	htmlString = string(htmlBytes)
 	if err != nil {
 		panic(err)
 	}
 	resp.Body.Close()
 
-	app.mu.Lock()
-
-	return htmlString
+	return
 }
 
 //function handles http requests from the passwerk local host (not tendermint local host)
 func (app *UIApp) UIInputHandler(w http.ResponseWriter, r *http.Request) {
 
+	//lock tendermint for app use
 	app.mu.Lock()
+
+	//unlock before leaving the func
+	defer func() {
+		app.mu.Unlock()
+	}()
 
 	urlString := r.URL.Path[1:]
 	UIoutput := getUIoutput(app.performOperation(urlString))
 	fmt.Fprintf(w, UIoutput)
 
-	app.mu.Unlock()
+	return
 }
 
 func (app *UIApp) performOperation(urlString string) (err error,

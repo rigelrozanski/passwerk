@@ -149,80 +149,60 @@ func (ptr *PwkTreeReader) RetrieveCIdNames() (cIdNames []string, err error) {
 	var tempCopyDB db.DB
 	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
 
-	///////////////////////////////////////////////////////////////////////////////
-	main := func() {
+	defer func() {
+		//remove the temp db
+		err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
+	}()
 
-		var subTree merkle.Tree
+	var subTree merkle.Tree
+	subTree, err = LoadSubTree(tempCopyDB, ptr.Tree, ptr.UsernameHashed, ptr.PasswordHashed)
 
-		subTree, err = LoadSubTree(tempCopyDB, ptr.Tree, ptr.UsernameHashed, ptr.PasswordHashed)
+	cIdListKey := GetIdListKey(ptr.UsernameHashed, ptr.PasswordHashed)
+	if subTree.Has(cIdListKey) {
+		_, mapValues, _ := subTree.Get(cIdListKey)
 
-		cIdListKey := GetIdListKey(ptr.UsernameHashed, ptr.PasswordHashed)
-		if subTree.Has(cIdListKey) {
-			_, mapValues, _ := subTree.Get(cIdListKey)
+		//get the encrypted cIdNames
+		cIdNames = strings.Split(string(mapValues), "/")
 
-			//get the encrypted cIdNames
-			cIdNames = strings.Split(string(mapValues), "/")
+		//decrypt the cIdNames
+		for i := 0; i < len(cIdNames); i++ {
 
-			//decrypt the cIdNames
-			for i := 0; i < len(cIdNames); i++ {
-
-				if len(cIdNames[i]) < 1 {
-					continue
-				}
-				cIdNames[i], err = cry.ReadDecrypted(ptr.HashInputCIdNameEncryption, cIdNames[i])
+			if len(cIdNames[i]) < 1 {
+				continue
 			}
-			return
-		} else {
-			err = errors.New("badAuthentication")
-			return
+			cIdNames[i], err = cry.ReadDecrypted(ptr.HashInputCIdNameEncryption, cIdNames[i])
 		}
-	}
-	///////////////////////////////////////////////////////////////////////////////
-
-	main()
-	if err != nil {
+		return
+	} else {
+		err = errors.New("badAuthentication")
 		return
 	}
-
-	//remove the temp db
-	err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
-
-	return
 }
 
 //retrieve and decrypt a saved password given an account and id information
 func (ptr *PwkTreeReader) RetrieveCPassword() (cPassword string, err error) {
 
+	//create a temp DB
 	var tempCopyDB db.DB
 	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
 
-	//////////////////////////////////////////////////////////////////////////////
-	main := func() {
-		var subTree merkle.Tree
+	defer func() {
+		//remove the temp db
+		err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
+	}()
 
-		subTree, err = LoadSubTree(tempCopyDB, ptr.Tree, ptr.UsernameHashed, ptr.PasswordHashed)
+	var subTree merkle.Tree
+	subTree, err = LoadSubTree(tempCopyDB, ptr.Tree, ptr.UsernameHashed, ptr.PasswordHashed)
 
-		cPasswordKey := GetRecordKey(ptr.UsernameHashed, ptr.PasswordHashed, cry.GetHashedHexString(ptr.CIdNameUnencrypted))
-		_, cPasswordEncrypted, exists := subTree.Get(cPasswordKey)
-		if exists {
-			cPassword, err = cry.ReadDecrypted(ptr.HashInputCPasswordEncryption, string(cPasswordEncrypted))
-			return
-		} else {
-			err = errors.New("invalidCIdName")
-			return
-		}
-	}
-	//////////////////////////////////////////////////////////////////////////////
-
-	main()
-	if err != nil {
+	cPasswordKey := GetRecordKey(ptr.UsernameHashed, ptr.PasswordHashed, cry.GetHashedHexString(ptr.CIdNameUnencrypted))
+	_, cPasswordEncrypted, exists := subTree.Get(cPasswordKey)
+	if exists {
+		cPassword, err = cry.ReadDecrypted(ptr.HashInputCPasswordEncryption, string(cPasswordEncrypted))
+		return
+	} else {
+		err = errors.New("invalidCIdName")
 		return
 	}
-
-	//remove the temp db
-	err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
-
-	return
 }
 
 // retrieve the original encrypted id text, used for deleting from the stored list of ids for a user
@@ -231,52 +211,42 @@ func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted str
 	var tempCopyDB db.DB
 	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
 
-	//////////////////////////////////////////////////////////////////////////////
-	main := func() {
-		var subTree merkle.Tree
+	defer func() {
+		//remove the temp db
+		err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
+	}()
 
-		subTree, err = LoadSubTree(tempCopyDB, ptr.Tree, ptr.UsernameHashed, ptr.PasswordHashed)
+	var subTree merkle.Tree
+	subTree, err = LoadSubTree(tempCopyDB, ptr.Tree, ptr.UsernameHashed, ptr.PasswordHashed)
 
-		if err != nil {
-			return
-		}
-
-		cIdListKey := GetIdListKey(ptr.UsernameHashed, ptr.PasswordHashed)
-		_, cIdListValues, exists := subTree.Get(cIdListKey)
-
-		if exists == false {
-			err = errors.New("sub tree doesn't exist")
-			return
-		}
-
-		//get the encrypted cIdNames
-		cIdNames := strings.Split(string(cIdListValues), "/")
-
-		//determine the correct value from the cIdNames array and return
-		for i := 0; i < len(cIdNames); i++ {
-			if len(cIdNames[i]) < 1 {
-				continue
-			}
-			var tempCIdNameDecrypted string
-			tempCIdNameDecrypted, err = cry.ReadDecrypted(ptr.HashInputCIdNameEncryption, cIdNames[i])
-
-			//remove record from master list and merkle tree
-			if ptr.CIdNameUnencrypted == tempCIdNameDecrypted {
-				cIdNameOrigEncrypted = cIdNames[i]
-			}
-		}
-
-		return
-	}
-	///////////////////////////////////////////////////////////////////////////////
-
-	main()
 	if err != nil {
 		return
 	}
 
-	//remove the temp db
-	err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
+	cIdListKey := GetIdListKey(ptr.UsernameHashed, ptr.PasswordHashed)
+	_, cIdListValues, exists := subTree.Get(cIdListKey)
+
+	if exists == false {
+		err = errors.New("sub tree doesn't exist")
+		return
+	}
+
+	//get the encrypted cIdNames
+	cIdNames := strings.Split(string(cIdListValues), "/")
+
+	//determine the correct value from the cIdNames array and return
+	for i := 0; i < len(cIdNames); i++ {
+		if len(cIdNames[i]) < 1 {
+			continue
+		}
+		var tempCIdNameDecrypted string
+		tempCIdNameDecrypted, err = cry.ReadDecrypted(ptr.HashInputCIdNameEncryption, cIdNames[i])
+
+		//remove record from master list and merkle tree
+		if ptr.CIdNameUnencrypted == tempCIdNameDecrypted {
+			cIdNameOrigEncrypted = cIdNames[i]
+		}
+	}
 
 	return
 }

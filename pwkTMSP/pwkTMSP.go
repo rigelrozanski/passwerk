@@ -53,14 +53,12 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 
 	//lock and perform main appendTx functionality
 	app.mu.Lock()
-	out := app.appendTx(tx)
-	app.mu.Unlock()
 
-	return out
-}
+	//unlock before leaving the func
+	defer func() {
+		app.mu.Unlock()
+	}()
 
-//core functionality of AppendTx, added to avoid code duplication of app.mu.Unlock() on return
-func (app *PasswerkTMSP) appendTx(tx []byte) types.Result {
 	//seperate the tx into all the parts to be written
 	parts := strings.Split(string(tx), "/")
 
@@ -110,13 +108,11 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 
 	//lock and perform main checkTx funtionality
 	app.mu.Lock()
-	out := app.checkTx(tx)
-	app.mu.Unlock()
-	return out
-}
 
-//core functionality of CheckTx, added to avoid code duplication of app.mu.Unlock() on return
-func (app *PasswerkTMSP) checkTx(tx []byte) types.Result {
+	//unlock before leaving the func
+	defer func() {
+		app.mu.Unlock()
+	}()
 
 	//seperate the tx into all the parts to be written
 	parts := strings.Split(string(tx), "/")
@@ -168,9 +164,13 @@ func (app *PasswerkTMSP) checkTx(tx []byte) types.Result {
 //return the hash of the merkle tree, use locks
 func (app *PasswerkTMSP) Commit() types.Result {
 	app.mu.Lock()
-	out := types.NewResultOK(app.state.Hash(), "")
-	app.mu.Unlock()
-	return out
+
+	//unlock before leaving the func
+	defer func() {
+		app.mu.Unlock()
+	}()
+
+	return types.NewResultOK(app.state.Hash(), "")
 }
 
 //currently Query is unsupported but arguably should be supported for reading_IdNames and reading_Password values for operationalOptions
