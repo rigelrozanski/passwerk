@@ -19,8 +19,9 @@ _A cryptographically secure password storage web-utility with distributed consen
 ### Starting passwerk
 
 1. Initialize a genesis and validator key in ~/.tendermint, run `tendermint init`
-2. Within a first terminal window run `passwerk`
-3. Within a second terminal window run `tendermint node`
+2. Within Terminal navigate to the folder where you would like passwerk's database to be stored/read-from (see Notes on Persistence)
+3. Within a first Terminal window run `passwerk`
+4. Within a second Terminal window run `tendermint node`
 
 ### Example Usage
 
@@ -46,3 +47,10 @@ The following examples demonstrate the four functions available within passwerk:
 * retrieve a saved password for a given master-username/master-password/identifier  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; http://localhost:8080/w/masterUsername/masterPassword/idenfier/savedpassword
 
+### Notes on Persistence
+
+Passwerk saves its state in a database allowing for the application to resume if it's execution is stopped and restarted.
+The database that Passwerk will either create or read-from is always located in .../db/ where ... is the path you are
+navigated to within terminal at the time of execution of the passwerk application. Do not delete or modify  this folder 
+while Passwerk is in operation. To clear the database and all records held in a Passwerk instance, you may delete this 
+folder and its contents while Passwerk isn't running.
