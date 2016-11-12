@@ -60,11 +60,11 @@ folder and its contents while Passwerk isn't running. The database name and loca
 startup, for more details see `passwerk start --help`
 
 ### Command List
-
-`passwerk --help` 	diplays program details and command list
-`passwerk start` 	start passwerk, see `passwerk start --help` for addtional startup options
-`passwerk clearDB`	clears the saved db at default location, see `passwerk clearDB --help` for other options
-`passwerk example`	diplays example usage from web browser
+  
+`passwerk --help` 	diplays program details and command list  
+`passwerk start` 	start passwerk, see `passwerk start --help` for addtional startup options  
+`passwerk clearDB`	clears the saved db at default location, see `passwerk clearDB --help` for other options  
+`passwerk example`	diplays example usage from web browser  
 
 ### Contributing
 
