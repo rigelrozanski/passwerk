@@ -13,31 +13,37 @@ import (
 	"time"
 
 	cmn "passwerk/common"
-	cry "passwerk/cryptoMgt"
-	tree "passwerk/treeMgt"
+	cry "passwerk/crypto"
+	"passwerk/tree"
+
+	"github.com/spf13/pflag"
 )
 
-const portPasswerkUI string = "8080"
-const portTendermint string = "46657"
-
 type UIApp struct {
-	mu           *sync.Mutex
-	state        cmn.MerkleTreeReadOnly
-	stateDB      cmn.DBReadOnly
-	stateHashKey []byte
+	mu              *sync.Mutex
+	flagSet         *pflag.FlagSet
+	state           cmn.MerkleTreeReadOnly
+	stateDB         cmn.DBReadOnly
+	stateHashKey    []byte
+	merkleCacheSize int
+	portUI          string
 }
 
-func HTTPListener(muIn *sync.Mutex, stateIn cmn.MerkleTreeReadOnly, stateDBIn cmn.DBReadOnly, stateHashKeyIn []byte) {
+func HTTPListener(muIn *sync.Mutex, flagSetIn *pflag.FlagSet, stateIn cmn.MerkleTreeReadOnly,
+	stateDBIn cmn.DBReadOnly, stateHashKeyIn []byte, merkleCacheSizeIn int, portUIIn string) {
 
 	app := &UIApp{
-		mu:           muIn,
-		state:        stateIn,
-		stateDB:      stateDBIn,
-		stateHashKey: stateHashKeyIn,
+		mu:              muIn,
+		flagSet:         flagSetIn,
+		state:           stateIn,
+		stateDB:         stateDBIn,
+		stateHashKey:    stateHashKeyIn,
+		merkleCacheSize: merkleCacheSizeIn,
+		portUI:          portUIIn,
 	}
 
 	http.HandleFunc("/", app.UIInputHandler)
-	http.ListenAndServe(":"+portPasswerkUI, nil)
+	http.ListenAndServe(":"+app.portUI, nil)
 }
 
 //This method performs a broadcast_tx_commit call to tendermint
@@ -55,7 +61,7 @@ func (app *UIApp) broadcastTxFromString(tx string) (htmlString string) {
 	urlStringBytes := []byte(tx)
 	urlHexString := hex.EncodeToString(urlStringBytes[:])
 
-	resp, err := http.Get(`http://localhost:` + portTendermint + `/broadcast_tx_commit?tx="` + urlHexString + `"`)
+	resp, err := http.Get(`http://localhost:46657/broadcast_tx_commit?tx="` + urlHexString + `"`)
 	htmlBytes, err := ioutil.ReadAll(resp.Body)
 	htmlString = string(htmlBytes)
 	if err != nil {
@@ -137,11 +143,12 @@ func (app *UIApp) performOperation(urlString string) (err error,
 	}
 
 	ptr := &tree.PwkTreeReader{
-		Mu:                           app.mu,
 		Db:                           app.stateDB,
 		Tree:                         app.state,
+		MerkleCacheSize:              app.merkleCacheSize,
 		UsernameHashed:               usernameHashed,
 		PasswordHashed:               passwordHashed,
+		Mu:                           app.mu,
 		CIdNameUnencrypted:           urlCIdName,
 		HashInputCIdNameEncryption:   hashInputCIdNameEncryption,
 		HashInputCPasswordEncryption: hashInputCPasswordEncryption,
@@ -173,6 +180,7 @@ func (app *UIApp) performOperation(urlString string) (err error,
 	case "readingPassword":
 		var cPasswordDecrypted string
 		cPasswordDecrypted, err = ptr.RetrieveCPassword()
+
 		if err != nil {
 			return
 		}
@@ -187,7 +195,7 @@ func (app *UIApp) performOperation(urlString string) (err error,
 			return
 		}
 
-		if len(mapCIdNameEncrypted2Delete) >= 0 {
+		if len(mapCIdNameEncrypted2Delete) > 0 {
 
 			//create he tx then broadcast
 			tx2broadcast := path.Join(
@@ -290,6 +298,10 @@ func getOperationalOption(notSelected, urlOptionText, urlUsername,
 
 func getUIoutput(err error, urlUsername, urlPassword, urlCIdName, speachBubble, idNameList string) string {
 
+	if len(speachBubble) < 1 {
+		speachBubble = "i h8 myslf"
+	}
+
 	// writing special speach bubbles for errors encounted
 	if err != nil {
 		switch err.Error() {
@@ -304,10 +316,6 @@ func getUIoutput(err error, urlUsername, urlPassword, urlCIdName, speachBubble, 
 		default:
 			speachBubble = err.Error()
 		}
-	}
-
-	if len(speachBubble) < 1 {
-		speachBubble = "i h8 myslf"
 	}
 
 	return "passwerk" + `

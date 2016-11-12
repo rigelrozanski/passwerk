@@ -1,11 +1,11 @@
 //This package is charged with communication with tendermint-core
-package pwkTMSP
+package tmsp
 
 import (
 	"strings"
 	"sync"
 
-	tree "passwerk/treeMgt"
+	"passwerk/tree"
 
 	. "github.com/tendermint/go-common"
 	"github.com/tendermint/go-db"
@@ -14,19 +14,22 @@ import (
 )
 
 type PasswerkTMSP struct {
-	mu           *sync.Mutex
-	state        merkle.Tree
-	stateDB      db.DB
-	stateHashKey []byte
+	mu              *sync.Mutex
+	state           merkle.Tree
+	stateDB         db.DB
+	stateHashKey    []byte
+	merkleCacheSize int
 }
 
-func NewPasswerkApplication(muIn *sync.Mutex, stateIn merkle.Tree, stateDBIn db.DB, stateHashKeyIn []byte) *PasswerkTMSP {
+func NewPasswerkApplication(muIn *sync.Mutex, stateIn merkle.Tree, stateDBIn db.DB,
+	stateHashKeyIn []byte, merkleCacheSizeIn int) *PasswerkTMSP {
 
 	app := &PasswerkTMSP{
-		mu:           muIn,
-		state:        stateIn,
-		stateDB:      stateDBIn,
-		stateHashKey: stateHashKeyIn,
+		mu:              muIn,
+		state:           stateIn,
+		stateDB:         stateDBIn,
+		stateHashKey:    stateHashKeyIn,
+		merkleCacheSize: merkleCacheSizeIn,
 	}
 
 	return app
@@ -68,6 +71,7 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 	ptw := &tree.PwkTreeWriter{
 		Db:               app.stateDB,
 		Tree:             app.state,
+		MerkleCacheSize:  app.merkleCacheSize,
 		UsernameHashed:   parts[2],
 		PasswordHashed:   parts[3],
 		CIdNameHashed:    parts[4],
@@ -133,12 +137,22 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 			return badReturn("Invalid number of TX parts")
 		}
 
+		ptw := &tree.PwkTreeWriter{
+			Db:               app.stateDB,
+			Tree:             app.state,
+			MerkleCacheSize:  app.merkleCacheSize,
+			UsernameHashed:   parts[2],
+			PasswordHashed:   parts[3],
+			CIdNameHashed:    parts[4],
+			CIdNameEncrypted: parts[5],
+		}
+
 		usernameHashed := parts[2]
 		passwordHashed := parts[3]
 		cIdNameHashed := parts[4]
 		cIdNameEncrypted := parts[5]
 
-		subTree, err := tree.LoadSubTree(app.stateDB, app.state, usernameHashed, passwordHashed)
+		subTree, err := ptw.LoadSubTreePTW()
 		if err != nil {
 			return badReturn("bad sub tree")
 		}

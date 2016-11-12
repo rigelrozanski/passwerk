@@ -1,5 +1,5 @@
 //This:w package is charged with cryptographic functionality
-package cryptoMgt
+package crypto
 
 import (
 	"crypto/rand"
