@@ -5,10 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"golang.org/x/crypto/sha3"
 	"io"
 
 	"golang.org/x/crypto/nacl/box"
+	"golang.org/x/crypto/sha3"
 )
 
 //read and decrypt from the hashPasswordList

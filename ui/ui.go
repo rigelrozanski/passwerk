@@ -24,6 +24,8 @@ type UIApp struct {
 	stateHashKey    []byte
 	merkleCacheSize int
 	portUI          string
+
+	testing bool // true during testing TODO: remove skipTxBroadcast etc
 }
 
 func HTTPListener(muIn *sync.Mutex, stateIn cmn.MerkleTreeReadOnly,
@@ -48,11 +50,7 @@ func (app *UIApp) broadcastTxFromString(tx string) (htmlString string) {
 
 	//unlock for broadcasting to tendermint
 	app.mu.Unlock()
-
-	//re-lock before leaving the func
-	defer func() {
-		app.mu.Lock()
-	}()
+	defer app.mu.Lock()
 
 	urlStringBytes := []byte(tx)
 	urlHexString := hex.EncodeToString(urlStringBytes[:])
@@ -73,11 +71,7 @@ func (app *UIApp) UIInputHandler(w http.ResponseWriter, r *http.Request) {
 
 	//lock tendermint for app use
 	app.mu.Lock()
-
-	//unlock before leaving the func
-	defer func() {
-		app.mu.Unlock()
-	}()
+	defer app.mu.Unlock()
 
 	urlString := r.URL.Path[1:]
 
@@ -155,7 +149,7 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 
 	//performing authentication (don't need to authenicate for writing passwords)
 	if operationalOption != "writing" &&
-		ptr.Authenticate() == false {
+		!ptr.Authenticate() {
 		err = errors.New("badAuthentication")
 		return
 	}

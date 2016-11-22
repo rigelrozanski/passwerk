@@ -8,7 +8,7 @@ import (
 	cmn "github.com/rigelrozanski/passwerk/common"
 )
 
-func TestUi(t *testing.T) {
+func TestTMSP(t *testing.T) {
 
 	//inititilize DB for testing
 	err, stateHashKeyIn, pwkDBIn, _, stateIn, _ := cmn.InitTestingDB()
@@ -39,5 +39,4 @@ func TestUi(t *testing.T) {
 	if err != nil {
 		t.Errorf(err.Error())
 	}
-
 }

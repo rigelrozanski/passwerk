@@ -19,6 +19,8 @@ type PasswerkTMSP struct {
 	stateDB         db.DB
 	stateHashKey    []byte
 	merkleCacheSize int
+
+	// writer
 }
 
 func NewPasswerkApplication(muIn *sync.Mutex, stateIn merkle.Tree, stateDBIn db.DB,
@@ -54,14 +56,6 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 		return checkTxResult
 	}
 
-	//lock and perform main appendTx functionality
-	app.mu.Lock()
-
-	//unlock before leaving the func
-	defer func() {
-		app.mu.Unlock()
-	}()
-
 	//seperate the tx into all the parts to be written
 	parts := strings.Split(string(tx), "/")
 
@@ -69,14 +63,19 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 	operationalOption := parts[1] //part[0] contains the timeStamp which is currently ignored (used to avoid duplicate tx submissions)
 
 	ptw := &tree.PwkTreeWriter{
-		Db:               app.stateDB,
-		Tree:             app.state,
-		MerkleCacheSize:  app.merkleCacheSize,
+		Db:              app.stateDB,
+		Tree:            app.state,
+		MerkleCacheSize: app.merkleCacheSize,
+
 		UsernameHashed:   parts[2],
 		PasswordHashed:   parts[3],
 		CIdNameHashed:    parts[4],
 		CIdNameEncrypted: parts[5],
 	}
+
+	//lock and perform main appendTx functionality
+	app.mu.Lock()
+	defer app.mu.Unlock()
 
 	switch operationalOption {
 	case "writing":
@@ -91,9 +90,6 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 			return badReturn(err.Error())
 		}
 	}
-
-	//save the momma-merkle state in the db for persistence
-	app.stateDB.Set(app.stateHashKey, app.state.Save())
 
 	return types.OK
 }
@@ -112,11 +108,7 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 
 	//lock and perform main checkTx funtionality
 	app.mu.Lock()
-
-	//unlock before leaving the func
-	defer func() {
-		app.mu.Unlock()
-	}()
+	defer app.mu.Unlock()
 
 	//seperate the tx into all the parts to be written
 	parts := strings.Split(string(tx), "/")
@@ -152,7 +144,7 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 		cIdNameHashed := parts[4]
 		cIdNameEncrypted := parts[5]
 
-		subTree, err := ptw.LoadSubTreePTW()
+		subTree, err := ptw.LoadSubTree()
 		if err != nil {
 			return badReturn("bad sub tree")
 		}
@@ -162,9 +154,9 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 		containsCIdNameEncrypted := strings.Contains(string(mapValues), "/"+cIdNameEncrypted+"/")
 
 		//check to make sure the record exists to be deleted
-		if treeRecordExists == false ||
-			mapExists == false ||
-			containsCIdNameEncrypted == false {
+		if !treeRecordExists ||
+			!mapExists ||
+			!containsCIdNameEncrypted {
 			return badReturn("Record to delete does not exist")
 		}
 
@@ -178,11 +170,11 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 //return the hash of the merkle tree, use locks
 func (app *PasswerkTMSP) Commit() types.Result {
 	app.mu.Lock()
+	defer app.mu.Unlock()
 
-	//unlock before leaving the func
-	defer func() {
-		app.mu.Unlock()
-	}()
+	//save the momma-merkle state in the db for persistence
+	// TODO use the const global variable for the key
+	app.stateDB.Set(app.stateHashKey, app.state.Save())
 
 	return types.NewResultOK(app.state.Hash(), "")
 }

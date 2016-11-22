@@ -40,7 +40,7 @@ func startRun(cmd *cobra.Command, args []string) {
 	flag.Parse()
 
 	//lock for data access
-	var mu = &sync.Mutex{}
+	mu := new(sync.Mutex)
 
 	/////////////////////////////////////
 	//  Load Database
@@ -50,9 +50,9 @@ func startRun(cmd *cobra.Command, args []string) {
 	dBKeyMerkleHash := []byte("mommaHash")
 
 	//setup the persistent merkle tree to be used by both the UI and TMSP
-	oldDBNotPresent, _ := cmn.IsDirEmpty(dBPath + "/" + dBName + ".db")
+	oldDBNotPresent, _ := cmn.IsDirEmpty(path.Join(dBPath, dBName) + ".db")
 
-	if oldDBNotPresent == true {
+	if oldDBNotPresent {
 		fmt.Println("no existing db, creating new db")
 	} else {
 		fmt.Println("loading existing db")
@@ -93,6 +93,6 @@ func startRun(cmd *cobra.Command, args []string) {
 
 	// Wait forever
 	TrapSignal(func() {
-		// Cleanup
+		// TODO: tear down database
 	})
 }

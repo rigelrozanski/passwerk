@@ -10,10 +10,8 @@ import (
 var dBPath string = "pwkTestDb"
 var dBName string = "pwkTestDb"
 
+// TODO: dont name this many returns, error last
 func InitTestingDB() (err error, dBKeyMerkleHash []byte, pwkDB db.DB, pwkDBReadOnly DBReadOnly, state merkle.Tree, stateReadOnly MerkleTreeReadOnly) {
-
-	//Keyz for db values which hold information which isn't the contents of a Merkle tree
-	dBKeyMerkleHash = []byte("mommaHash")
 
 	//setup the persistent merkle tree to be used by both the UI and TMSP
 	oldDBNotPresent, _ := IsDirEmpty(dBPath + "/" + dBName + ".db")
