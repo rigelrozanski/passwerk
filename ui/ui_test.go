@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	cmn "passwerk/common"
-	"passwerk/tmsp"
+	cmn "github.com/rigelrozanski/passwerk/common"
+	"github.com/rigelrozanski/passwerk/tmsp"
 )
 
 func TestUi(t *testing.T) {

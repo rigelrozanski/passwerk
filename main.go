@@ -13,7 +13,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"passwerk/cmd"
+	"github.com/rigelrozanski/passwerk/cmd"
 )
 
 func main() {

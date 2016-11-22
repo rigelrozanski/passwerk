@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	cmn "passwerk/common"
-
 	"github.com/spf13/cobra"
+
+	cmn "github.com/rigelrozanski/passwerk/common"
 )
 
 var clearDBCmd = &cobra.Command{

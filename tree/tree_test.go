@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	cmn "passwerk/common"
-	cry "passwerk/crypto"
+	cmn "github.com/rigelrozanski/passwerk/common"
+	cry "github.com/rigelrozanski/passwerk/crypto"
 )
 
 func TestTree(t *testing.T) {

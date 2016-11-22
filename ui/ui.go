@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	cmn "passwerk/common"
-	cry "passwerk/crypto"
-	"passwerk/tree"
+	cmn "github.com/rigelrozanski/passwerk/common"
+	cry "github.com/rigelrozanski/passwerk/crypto"
+	"github.com/rigelrozanski/passwerk/tree"
 )
 
 type UIApp struct {

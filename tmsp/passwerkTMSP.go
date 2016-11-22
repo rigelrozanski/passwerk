@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"passwerk/tree"
+	"github.com/rigelrozanski/passwerk/tree"
 
 	. "github.com/tendermint/go-common"
 	"github.com/tendermint/go-db"

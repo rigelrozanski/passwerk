@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	cmn "passwerk/common"
-	pwkTMSP "passwerk/tmsp"
-	"passwerk/ui"
+	cmn "github.com/rigelrozanski/passwerk/common"
+	pwkTMSP "github.com/rigelrozanski/passwerk/tmsp"
+	"github.com/rigelrozanski/passwerk/ui"
 
 	"github.com/spf13/cobra"
 	. "github.com/tendermint/go-common"

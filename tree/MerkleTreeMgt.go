@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	cmn "passwerk/common"
-	cry "passwerk/crypto"
+	cmn "github.com/rigelrozanski/passwerk/common"
+	cry "github.com/rigelrozanski/passwerk/crypto"
 
 	"github.com/tendermint/go-db"
 	"github.com/tendermint/go-merkle"

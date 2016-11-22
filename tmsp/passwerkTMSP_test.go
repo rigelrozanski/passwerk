@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	cmn "passwerk/common"
+	cmn "github.com/rigelrozanski/passwerk/common"
 )
 
 func TestUi(t *testing.T) {
