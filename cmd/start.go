@@ -28,7 +28,7 @@ func init() {
 	startCmd.Flags().IntVarP(&cacheSize, "cacheSize", "c", 0, "Cache size for momma merkle trees and child trees (default 0)")
 	startCmd.Flags().StringVarP(&portUI, "portUI", "p", "8080", "local port for the passwerk application")
 	startCmd.Flags().StringVarP(&dBPath, "dBPath", "a", "pwkDB", "relative folder name for the storing the passwerk database(s)")
-	startCmd.Flags().StringVarP(&dBName, "dBName", "n", "passwerkDB", "name of the passwerk database being stored")
+	startCmd.Flags().StringVarP(&dBName, "dBName", "n", "pwkDB", "name of the passwerk database being stored")
 	//startCmd.Flags().BoolVarP(&newDB, "newDb", "n", false, "force generate a new database when inilitizing")
 	RootCmd.AddCommand(startCmd)
 }
@@ -41,9 +41,6 @@ func startRun(cmd *cobra.Command, args []string) {
 
 	//lock for data access
 	var mu = &sync.Mutex{}
-
-	//global flagSet
-	flagSet := RootCmd.PersistentFlags()
 
 	/////////////////////////////////////
 	//  Load Database
@@ -62,34 +59,34 @@ func startRun(cmd *cobra.Command, args []string) {
 	}
 
 	//open the db, if the db doesn't exist it will be created
-	passwerkDB := db.NewDB(dBName, db.DBBackendLevelDB, dBPath)
+	pwkDB := db.NewDB(dBName, db.DBBackendLevelDB, dBPath)
 
 	var state merkle.Tree
-	state = merkle.NewIAVLTree(cacheSize, passwerkDB)
+	state = merkle.NewIAVLTree(cacheSize, pwkDB)
 
 	//either load, or set and load the merkle state
 	if oldDBNotPresent {
-		passwerkDB.Set(dBKeyMerkleHash, state.Save())
+		pwkDB.Set(dBKeyMerkleHash, state.Save())
 	}
-	state.Load(passwerkDB.Get([]byte(dBKeyMerkleHash)))
+	state.Load(pwkDB.Get([]byte(dBKeyMerkleHash)))
 
 	////////////////////////////////////
 	//  Start UI
 	////////////////////////////////////
 
 	stateReadOnly := state.(cmn.MerkleTreeReadOnly)
-	dBReadOnly := cmn.DBReadOnly{DBFile: passwerkDB,
+	pwkDBReadOnly := cmn.DBReadOnly{DBFile: pwkDB,
 		DBPath: dBPath,
 		DBName: dBName,
 	}
-	go ui.HTTPListener(mu, flagSet, stateReadOnly, dBReadOnly, dBKeyMerkleHash, cacheSize, portUI) //start on a seperate Thread
+	go ui.HTTPListener(mu, stateReadOnly, pwkDBReadOnly, dBKeyMerkleHash, cacheSize, portUI) //start on a seperate Thread
 
 	////////////////////////////////////
 	//  Start TMSP
 	////////////////////////////////////
 
 	// Start the listener
-	_, err := server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(mu, state, passwerkDB, dBKeyMerkleHash, cacheSize))
+	_, err := server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(mu, state, pwkDB, dBKeyMerkleHash, cacheSize))
 	if err != nil {
 		Exit(err.Error())
 	}

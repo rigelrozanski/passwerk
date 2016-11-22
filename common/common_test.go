@@ -1,122 +1,73 @@
-package common_test
+package common
 
 import (
-	"passwerk/common"
+	"os"
 	"testing"
 )
 
-//Same as the merkle.Tree Type but without: Set, Remove, Load, Copy
-type MerkleTreeReadOnly interface {
-	Size() (size int)
-	Height() (height int8)
-	Has(key []byte) (has bool)
-	Get(key []byte) (index int, value []byte, exists bool)
-	GetByIndex(index int) (key []byte, value []byte)
-	HashWithCount() (hash []byte, count int)
-	Hash() (hash []byte)
-	Save() (hash []byte)
-	Iterate(func(key []byte, value []byte) (stop bool)) (stopped bool)
-}
+func TestCommon(t *testing.T) {
 
-//Same as db.DB but without: Set, SetSync, Delete, DeleteSync, Close
-type DBReadOnlyDB interface {
-	Get([]byte) []byte
-	Print()
-}
+	//setup a new directory for testing
+	testDir := "passwerkTempDir"
+	testSubDir := testDir + "/subDirTest"
+	testDir4Copy := "passwerkTempDir2"
 
-type DBReadOnly struct {
-	DBFile DBReadOnlyDB
-	DBPath string
-	DBName string
-}
-
-/////////////////////////////////
-//  File folder operations
-/////////////////////////////////
-
-func IsDirEmpty(name string) (bool, error) {
-	f, err := os.Open(name)
+	//make the test directory, will be empty
+	err := os.Mkdir(testDir, 0777)
 	if err != nil {
-		return true, err //folder is non-existent
+		t.Errorf("err creating dir: ", err.Error())
+		err = nil
 	}
-	defer f.Close()
 
-	_, err = f.Readdirnames(1) // Or f.Readdir(1)
-	if err == io.EOF {
-		return true, nil
-	}
-	return false, err // Either not empty or error, suits both cases
-}
-func DeleteDir(dir string) error {
-	return os.RemoveAll(dir)
-}
-
-func CopyDir(source string, dest string) (err error) {
-
-	// get properties of source dir
-	sourceinfo, err := os.Stat(source)
+	//test the empty dir
+	var dirIsEmpty bool = false
+	dirIsEmpty, err = IsDirEmpty(testDir)
 	if err != nil {
-		return err
+		t.Errorf("err testing IsDirEmpty: ", err.Error())
+		err = nil
+	} else if !dirIsEmpty {
+		t.Errorf("failed IsDirEmpty logic, empty dir considered non-empty")
 	}
 
-	// create dest dir
-
-	err = os.MkdirAll(dest, sourceinfo.Mode())
+	//make the test sub directory
+	err = os.Mkdir(testSubDir, 0777)
 	if err != nil {
-		return err
+		t.Errorf("err creating dir: ", err.Error())
+		err = nil
 	}
 
-	directory, _ := os.Open(source)
-
-	objects, err := directory.Readdir(-1)
-
-	for _, obj := range objects {
-
-		sourcefilepointer := source + "/" + obj.Name()
-
-		destinationfilepointer := dest + "/" + obj.Name()
-
-		if obj.IsDir() {
-			// create sub-directories - recursively
-			err = CopyDir(sourcefilepointer, destinationfilepointer)
-			if err != nil {
-				fmt.Println(err)
-			}
-		} else {
-			// perform copy
-			err = CopyFile(sourcefilepointer, destinationfilepointer)
-			if err != nil {
-				fmt.Println(err)
-			}
-		}
-
-	}
-	return
-}
-
-func CopyFile(source string, dest string) (err error) {
-	sourcefile, err := os.Open(source)
+	//test to see if testDir is still empty (shouldn't be)
+	dirIsEmpty = true
+	dirIsEmpty, err = IsDirEmpty(testDir)
 	if err != nil {
-		return err
+		t.Errorf("err testing IsDirEmpty: ", err.Error())
+		err = nil
+	} else if dirIsEmpty {
+		t.Errorf("failed IsDirEmpty logic, non-empty dir considered empty")
 	}
 
-	defer sourcefile.Close()
-
-	destfile, err := os.Create(dest)
+	//test the copy directory, should copy all sub files (including the sub directory generated)
+	err = CopyDir(testDir, testDir4Copy)
 	if err != nil {
-		return err
+		t.Errorf("err copying dir: ", err.Error())
+		err = nil
 	}
 
-	defer destfile.Close()
-
-	_, err = io.Copy(destfile, sourcefile)
-	if err == nil {
-		sourceinfo, err := os.Stat(source)
-		if err != nil {
-			err = os.Chmod(dest, sourceinfo.Mode())
-		}
-
+	//test to see if was copyied
+	dirIsEmpty = true
+	dirIsEmpty, err = IsDirEmpty(testDir4Copy)
+	if err != nil {
+		t.Errorf("err testing IsDirEmpty: ", err.Error())
+		err = nil
+	} else if dirIsEmpty {
+		t.Errorf("failed IsDirEmpty logic, non-empty dir considered empty")
 	}
 
-	return
+	//delete the testing directories
+	err = DeleteDir(testDir)
+	err = DeleteDir(testDir4Copy)
+	if err != nil {
+		t.Errorf("err deleting dir: ", err.Error())
+		err = nil
+	}
 }

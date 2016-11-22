@@ -158,7 +158,7 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 		}
 
 		treeRecordExists := subTree.Has(tree.GetRecordKey(usernameHashed, passwordHashed, cIdNameHashed))
-		_, mapValues, mapExists := subTree.Get(tree.GetIdListKey(usernameHashed, passwordHashed))
+		_, mapValues, mapExists := subTree.Get(tree.GetCIdListKey(usernameHashed, passwordHashed))
 		containsCIdNameEncrypted := strings.Contains(string(mapValues), "/"+cIdNameEncrypted+"/")
 
 		//check to make sure the record exists to be deleted

@@ -15,28 +15,24 @@ import (
 	cmn "passwerk/common"
 	cry "passwerk/crypto"
 	"passwerk/tree"
-
-	"github.com/spf13/pflag"
 )
 
 type UIApp struct {
 	mu              *sync.Mutex
-	flagSet         *pflag.FlagSet
 	state           cmn.MerkleTreeReadOnly
-	stateDB         cmn.DBReadOnly
+	pwkDB           cmn.DBReadOnly
 	stateHashKey    []byte
 	merkleCacheSize int
 	portUI          string
 }
 
-func HTTPListener(muIn *sync.Mutex, flagSetIn *pflag.FlagSet, stateIn cmn.MerkleTreeReadOnly,
-	stateDBIn cmn.DBReadOnly, stateHashKeyIn []byte, merkleCacheSizeIn int, portUIIn string) {
+func HTTPListener(muIn *sync.Mutex, stateIn cmn.MerkleTreeReadOnly,
+	pwkDBIn cmn.DBReadOnly, stateHashKeyIn []byte, merkleCacheSizeIn int, portUIIn string) {
 
 	app := &UIApp{
 		mu:              muIn,
-		flagSet:         flagSetIn,
 		state:           stateIn,
-		stateDB:         stateDBIn,
+		pwkDB:           pwkDBIn,
 		stateHashKey:    stateHashKeyIn,
 		merkleCacheSize: merkleCacheSizeIn,
 		portUI:          portUIIn,
@@ -84,13 +80,16 @@ func (app *UIApp) UIInputHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	urlString := r.URL.Path[1:]
-	UIoutput := getUIoutput(app.performOperation(urlString))
+
+	var dummyStringPtr [2]*string
+
+	UIoutput := getUIoutput(app.performOperation(urlString, false, dummyStringPtr))
 	fmt.Fprintf(w, UIoutput)
 
 	return
 }
 
-func (app *UIApp) performOperation(urlString string) (err error,
+func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBroadcastStr [2]*string) (err error,
 	urlUsername, //		2nd URL section - <manditory> master username to be read or written from
 	urlPassword, //		3rd URL section - <manditory> master password to be read or written with
 	urlCIdName, //		4th URL section - <optional> cipherable indicator name for the password
@@ -143,7 +142,7 @@ func (app *UIApp) performOperation(urlString string) (err error,
 	}
 
 	ptr := &tree.PwkTreeReader{
-		Db:                           app.stateDB,
+		Db:                           app.pwkDB,
 		Tree:                         app.state,
 		MerkleCacheSize:              app.merkleCacheSize,
 		UsernameHashed:               usernameHashed,
@@ -205,7 +204,12 @@ func (app *UIApp) performOperation(urlString string) (err error,
 				passwordHashed,
 				cIdNameHashed,
 				mapCIdNameEncrypted2Delete)
-			app.broadcastTxFromString(tx2broadcast)
+
+			if skipTxBroadcast {
+				*txBroadcastStr[0] = tx2broadcast
+			} else {
+				app.broadcastTxFromString(tx2broadcast)
+			}
 
 			speachBubble = "*Chuckles* - nvr heard of no " + urlCIdName + " before"
 		} else {
@@ -229,7 +233,11 @@ func (app *UIApp) performOperation(urlString string) (err error,
 				passwordHashed,
 				cIdNameHashed,
 				mapCIdNameEncrypted2Delete)
-			app.broadcastTxFromString(tx2broadcast)
+			if skipTxBroadcast {
+				*txBroadcastStr[0] = tx2broadcast
+			} else {
+				app.broadcastTxFromString(tx2broadcast)
+			}
 		}
 
 		//reset the error term because it doesn't matter if the record was non-existent
@@ -245,7 +253,11 @@ func (app *UIApp) performOperation(urlString string) (err error,
 			cIdNameHashed,
 			cry.GetEncryptedHexString(hashInputCIdNameEncryption, urlCIdName),
 			cry.GetEncryptedHexString(hashInputCPasswordEncryption, urlCPassword))
-		app.broadcastTxFromString(tx2broadcast)
+		if skipTxBroadcast {
+			*txBroadcastStr[1] = tx2broadcast
+		} else {
+			app.broadcastTxFromString(tx2broadcast)
+		}
 
 		speachBubble = "Roger That"
 	}

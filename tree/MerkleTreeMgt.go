@@ -41,13 +41,25 @@ type PwkTreeReader struct {
 ///   Merkle Key Retrieval
 //////////////////////////////////////////
 
-func GetMapKey(UsernameHashed, PasswordHashed string) []byte {
+//to prevent key-value collisions in the database that holds
+//  records for both the momma-tree and sub-trees, prefixes
+//  are added to the keys of all the merkleTree Records
+//  For the sub tree values, there is an additional prefix
+//  of the hex-string of the hash of username/password
+const keyPrefix4SubTree string = "S"
+const keyPrefix4SubTreeValue string = "V"
+
+//momma-tree key for record containing the hash for the subtree
+func getMapKey(UsernameHashed, PasswordHashed string) []byte {
 	return []byte(path.Join(keyPrefix4SubTree, UsernameHashed, PasswordHashed))
 }
 
-func GetIdListKey(UsernameHashed, PasswordHashed string) []byte {
+//subtree key for the record which holds the list of password identifiers (cId's)
+func GetCIdListKey(UsernameHashed, PasswordHashed string) []byte {
 	return []byte(path.Join(keyPrefix4SubTreeValue, UsernameHashed, PasswordHashed))
 }
+
+//subtree key for a record and password combination
 func GetRecordKey(UsernameHashed, PasswordHashed, cIdNameHashed string) []byte {
 	return []byte(path.Join(keyPrefix4SubTreeValue, UsernameHashed, PasswordHashed, cIdNameHashed))
 }
@@ -64,7 +76,7 @@ func (ptw *PwkTreeWriter) DeleteRecord() (err error) {
 
 	//verify the record exists
 	merkleRecordKey := GetRecordKey(ptw.UsernameHashed, ptw.PasswordHashed, ptw.CIdNameHashed)
-	cIdListKey := GetIdListKey(ptw.UsernameHashed, ptw.PasswordHashed)
+	cIdListKey := GetCIdListKey(ptw.UsernameHashed, ptw.PasswordHashed)
 	_, cIdListValues, cIdListExists := subTree.Get(cIdListKey)
 
 	if subTree.Has(merkleRecordKey) == false ||
@@ -93,7 +105,7 @@ func (ptw *PwkTreeWriter) DeleteRecord() (err error) {
 	_, cIdListValues, _ = subTree.Get(cIdListKey)
 	if len(string(cIdListValues)) < 2 {
 		subTree.Remove(cIdListKey)
-		ptw.Tree.Remove(GetMapKey(ptw.UsernameHashed, ptw.PasswordHashed))
+		ptw.Tree.Remove(getMapKey(ptw.UsernameHashed, ptw.PasswordHashed))
 	}
 
 	return
@@ -104,8 +116,8 @@ func (ptw *PwkTreeWriter) NewRecord(cPasswordEncrypted string) (err error) {
 
 	var subTree merkle.Tree
 
-	mapKey := GetMapKey(ptw.UsernameHashed, ptw.PasswordHashed)
-	cIdListKey := GetIdListKey(ptw.UsernameHashed, ptw.PasswordHashed)
+	mapKey := getMapKey(ptw.UsernameHashed, ptw.PasswordHashed)
+	cIdListKey := GetCIdListKey(ptw.UsernameHashed, ptw.PasswordHashed)
 
 	//if the relavant subTree does not exist
 	//  create the subtree as well as the cIdList
@@ -141,7 +153,7 @@ const tempDBName string = "temp"
 
 //authenticate that the user is in the system
 func (ptr *PwkTreeReader) Authenticate() bool {
-	mapKey := GetMapKey(ptr.UsernameHashed, ptr.PasswordHashed)
+	mapKey := getMapKey(ptr.UsernameHashed, ptr.PasswordHashed)
 	return ptr.Tree.Has(mapKey)
 }
 
@@ -149,17 +161,17 @@ func (ptr *PwkTreeReader) Authenticate() bool {
 func (ptr *PwkTreeReader) RetrieveCIdNames() (cIdNames []string, err error) {
 
 	var tempCopyDB db.DB
-	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
+	tempCopyDB, err = openTempCopyDB(ptr.Db, tempDBName)
 
 	defer func() {
 		//remove the temp db
-		err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
+		err = deleteTempCopyDB(ptr.Db.DBPath, tempDBName, tempCopyDB)
 	}()
 
 	var subTree merkle.Tree
 	subTree, err = ptr.loadSubTreePTR(tempCopyDB)
 
-	cIdListKey := GetIdListKey(ptr.UsernameHashed, ptr.PasswordHashed)
+	cIdListKey := GetCIdListKey(ptr.UsernameHashed, ptr.PasswordHashed)
 	if subTree.Has(cIdListKey) {
 		_, mapValues, _ := subTree.Get(cIdListKey)
 
@@ -186,14 +198,14 @@ func (ptr *PwkTreeReader) RetrieveCPassword() (cPassword string, err error) {
 
 	//create a temp DB
 	var tempCopyDB db.DB
-	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
+	tempCopyDB, err = openTempCopyDB(ptr.Db, tempDBName)
 
 	defer func() {
 		//remove the temp db
 		if err != nil {
-			deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
+			deleteTempCopyDB(ptr.Db.DBPath, tempDBName, tempCopyDB)
 		} else {
-			err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
+			err = deleteTempCopyDB(ptr.Db.DBPath, tempDBName, tempCopyDB)
 		}
 	}()
 
@@ -215,11 +227,11 @@ func (ptr *PwkTreeReader) RetrieveCPassword() (cPassword string, err error) {
 func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted string, err error) {
 
 	var tempCopyDB db.DB
-	tempCopyDB, err = openTempCopyDB(ptr.Mu, ptr.Db, tempDBName)
+	tempCopyDB, err = openTempCopyDB(ptr.Db, tempDBName)
 
 	defer func() {
 		//remove the temp db
-		err = deleteTempCopyDB(ptr.Mu, ptr.Db.DBPath, tempDBName, tempCopyDB)
+		err = deleteTempCopyDB(ptr.Db.DBPath, tempDBName, tempCopyDB)
 	}()
 
 	var subTree merkle.Tree
@@ -229,7 +241,7 @@ func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted str
 		return
 	}
 
-	cIdListKey := GetIdListKey(ptr.UsernameHashed, ptr.PasswordHashed)
+	cIdListKey := GetCIdListKey(ptr.UsernameHashed, ptr.PasswordHashed)
 	_, cIdListValues, exists := subTree.Get(cIdListKey)
 
 	if exists == false {
@@ -265,7 +277,7 @@ func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted str
 // for reading purposes only (hence, don't modify the original DB at all
 // while reading)
 
-func openTempCopyDB(mu *sync.Mutex, dbIn cmn.DBReadOnly, tempName string) (tempDB db.DB, err error) {
+func openTempCopyDB(dbIn cmn.DBReadOnly, tempName string) (tempDB db.DB, err error) {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -281,8 +293,7 @@ func openTempCopyDB(mu *sync.Mutex, dbIn cmn.DBReadOnly, tempName string) (tempD
 	return
 }
 
-func deleteTempCopyDB(mu *sync.Mutex, dbDir, tempName string, tempDB db.DB) error {
-
+func deleteTempCopyDB(dbDir, tempName string, tempDB db.DB) error {
 	tempDB.Close()
 	return cmn.DeleteDir(path.Join(dbDir, tempName+".db"))
 }
@@ -290,14 +301,6 @@ func deleteTempCopyDB(mu *sync.Mutex, dbDir, tempName string, tempDB db.DB) erro
 ///////////////////////////////////////////
 ///    Sub Tree Managment
 ///////////////////////////////////////////
-
-//to prevent key-value collisions in the database that holds
-//  records for both the momma-tree and sub-trees, prefixes
-//  are added to the keys of all the merkleTree Records
-//  For the sub tree values, there is an additional prefix
-//  of the hex-string of the hash of username/password
-const keyPrefix4SubTree string = "S"
-const keyPrefix4SubTreeValue string = "V"
 
 //the momma merkle tree has sub-merkle tree state (output for .Save())
 // stored as the value in the key-value pair in the momma tree
@@ -323,7 +326,7 @@ func loadSubTree(MerkleCacheSize int, Db db.DB, Tree cmn.MerkleTreeReadOnly,
 	UsernameHashed, PasswordHashed string) (merkle.Tree, error) {
 
 	subTree := merkle.NewIAVLTree(MerkleCacheSize, Db)
-	_, treeOutHash2Load, exists := Tree.Get(GetMapKey(UsernameHashed, PasswordHashed))
+	_, treeOutHash2Load, exists := Tree.Get(getMapKey(UsernameHashed, PasswordHashed))
 	if exists == false {
 		return nil, errors.New("sub tree doesn't exist")
 	}
@@ -334,12 +337,12 @@ func loadSubTree(MerkleCacheSize int, Db db.DB, Tree cmn.MerkleTreeReadOnly,
 }
 
 func (ptw *PwkTreeWriter) saveSubTree(subTree merkle.Tree) {
-	ptw.Tree.Set(GetMapKey(ptw.UsernameHashed, ptw.PasswordHashed), subTree.Save())
+	ptw.Tree.Set(getMapKey(ptw.UsernameHashed, ptw.PasswordHashed), subTree.Save())
 }
 
 func (ptw *PwkTreeWriter) newSubTree() merkle.Tree {
 
 	subTree := merkle.NewIAVLTree(ptw.MerkleCacheSize, ptw.Db)
-	ptw.Tree.Set(GetMapKey(ptw.UsernameHashed, ptw.PasswordHashed), subTree.Save())
+	ptw.Tree.Set(getMapKey(ptw.UsernameHashed, ptw.PasswordHashed), subTree.Save())
 	return subTree
 }

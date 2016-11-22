@@ -66,6 +66,11 @@ startup, for more details see `passwerk start --help`
 `passwerk clearDB`	clears the saved db at default location, see `passwerk clearDB --help` for other options  
 `passwerk example`	diplays example usage from web browser  
 
+### Testing Code
+
+New code can be tested using the predefined testing packages within passwerk with the suffix "\_test".
+All tests can be executed from the passwerk directory with `go test ./...`
+
 ### Contributing
 
 1. Fork it

@@ -15,7 +15,7 @@ import (
 func ReadDecrypted(hashInput, encryptedString string) (decryptedString string, err error) {
 
 	var key [32]byte
-	copy(key[:], GetHash(hashInput))
+	copy(key[:], getHash(hashInput))
 
 	var ciphertext, decryptedByte []byte
 
@@ -30,7 +30,7 @@ func ReadDecrypted(hashInput, encryptedString string) (decryptedString string, e
 func GetEncryptedHexString(hashInput, unencryptedString string) string {
 
 	var key [32]byte
-	copy(key[:], GetHash(hashInput))
+	copy(key[:], getHash(hashInput))
 
 	encryptedByte, err := encryptNaCl(&key, []byte(unencryptedString))
 
@@ -50,14 +50,14 @@ func bytes2HexString(dataInput []byte) string {
 func GetHashedHexString(dataInput string) string {
 
 	//performing the hash
-	hashBytes := GetHash(dataInput)
+	hashBytes := getHash(dataInput)
 
 	//encoding to a hex string, within data the [x]byte array sliced to []byte (shorthand for h[0:len(h)])
 	hashHexString := bytes2HexString(hashBytes)
 	return hashHexString
 }
 
-func GetHash(dataInput string) []byte {
+func getHash(dataInput string) []byte {
 	//performing the hash
 	hashBytes := sha3.Sum256([]byte(dataInput))
 	return hashBytes[:]

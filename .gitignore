@@ -1,5 +1,5 @@
 # tendermint go db #
-db/passwerkDB.db/
+pwkDB/
 
 #vim files#
 *.swp
