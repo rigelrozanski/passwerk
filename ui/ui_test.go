@@ -4,18 +4,19 @@ package ui
 import (
 	"errors"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
-	cmn "github.com/rigelrozanski/passwerk/common"
 	"github.com/rigelrozanski/passwerk/tmsp"
+	tre "github.com/rigelrozanski/passwerk/tree"
 )
 
 func TestUi(t *testing.T) {
 
 	//inititilize DB for testing
-	err, stateHashKeyIn, pwkDBIn, pwkDBROin, stateIn, stateROIn := cmn.InitTestingDB()
+	pwkDb, ptw, ptr, err := tre.InitTestingDB()
 
 	if err != nil {
 		t.Errorf(err.Error())
@@ -23,7 +24,7 @@ func TestUi(t *testing.T) {
 
 	//remove the testing db before exit
 	defer func() {
-		err = cmn.DeleteTestingDB(pwkDBIn)
+		err = tre.DeleteTestingDB(pwkDb)
 
 		if err != nil {
 			t.Errorf("err deleting testing DB: ", err.Error())
@@ -31,20 +32,23 @@ func TestUi(t *testing.T) {
 	}()
 
 	//lock for data access, unused for testing purposes
-	var muTest = &sync.Mutex{}
+	muTest := new(sync.Mutex)
 	muTest.Lock()
 
 	//init a testing app stuct for the UI
 	app := &UIApp{
-		mu:              muTest,
-		state:           stateROIn,
-		pwkDB:           pwkDBROin,
-		stateHashKey:    stateHashKeyIn,
-		merkleCacheSize: 0,
-		portUI:          "8080",
+		mu:      muTest,
+		ptr:     ptr,
+		portUI:  "8080",
+		testing: true,
 	}
 
+	testNo := 0
+
 	testStandard := func(url, expectedContains string) {
+
+		testNo += 1 //used to identify which test is being run for failed tests
+
 		pntHolder := [2]string{"", ""}
 
 		var tx2SpoofBroadcast [2]*string
@@ -52,7 +56,7 @@ func TestUi(t *testing.T) {
 		tx2SpoofBroadcast[0] = &pntHolder[0]
 		tx2SpoofBroadcast[1] = &pntHolder[1]
 
-		testOutput := getUIoutput(app.performOperation(url, true, tx2SpoofBroadcast))
+		testOutput := getUIoutput(app.performOperation(url, tx2SpoofBroadcast))
 
 		//split the testOuptut to remove the header above the ascii charater which contains the raw url
 		splitOutput := strings.Split(testOutput, `/||||\`) //parse by the ascii character's hair (which contains the url charcter / aka users can't enter it)
@@ -70,14 +74,15 @@ func TestUi(t *testing.T) {
 				urlStringBytes := []byte(*tx2SpoofBroadcast[i])
 
 				muTest.Unlock()
-				tmsp.TestspoofBroadcast(urlStringBytes, muTest, stateIn, pwkDBIn, stateHashKeyIn, 0)
+				tmsp.TestspoofBroadcast(urlStringBytes, muTest, ptw)
 				muTest.Lock()
 			}
 		}
 
 		//check the output for an expected string
 		if !(strings.Contains(testOutput, expectedContains)) {
-			t.Errorf("error expected: "+expectedContains+" recieved: ", testOutput)
+			t.Errorf("test number: " + strconv.Itoa(testNo))
+			t.Errorf("error expected: " + expectedContains + " recieved: " + testOutput)
 		}
 	}
 

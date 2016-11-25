@@ -5,15 +5,13 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/tendermint/go-db"
-	"github.com/tendermint/go-merkle"
+	tre "github.com/rigelrozanski/passwerk/tree"
 )
 
 //function used in UI tests, spoofs functionality of broadcast tx which tendermint normally performs during operation
-func TestspoofBroadcast(tx2SpoofBroadcast []byte, muIn *sync.Mutex, stateIn merkle.Tree, stateDBIn db.DB,
-	stateHashKeyIn []byte, merkleCacheSizeIn int) error {
+func TestspoofBroadcast(tx2SpoofBroadcast []byte, mu *sync.Mutex, ptw tre.PwkTreeWriter) error {
 
-	app := NewPasswerkApplication(muIn, stateIn, stateDBIn, stateHashKeyIn, merkleCacheSizeIn)
+	app := NewPasswerkApplication(mu, ptw)
 
 	checkTxResult := app.CheckTx(tx2SpoofBroadcast)
 

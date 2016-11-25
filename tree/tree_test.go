@@ -8,14 +8,13 @@ import (
 	"sync"
 	"testing"
 
-	cmn "github.com/rigelrozanski/passwerk/common"
 	cry "github.com/rigelrozanski/passwerk/crypto"
 )
 
 func TestTree(t *testing.T) {
 
 	//inititilize DB for testing
-	err, _, pwkDBIn, pwkDBROIn, stateIn, stateROIn := cmn.InitTestingDB()
+	pwkDb, ptw, ptr, err := InitTestingDB()
 
 	testErrBasic := func(errIn error) {
 		if errIn != nil {
@@ -27,7 +26,7 @@ func TestTree(t *testing.T) {
 
 	//remove the testing db before exit
 	defer func() {
-		err = cmn.DeleteTestingDB(pwkDBIn)
+		err = DeleteTestingDB(pwkDb)
 
 		if err != nil {
 			t.Errorf("err deleting testing DB: ", err.Error())
@@ -35,33 +34,33 @@ func TestTree(t *testing.T) {
 	}()
 
 	//lock for data access, unused for testing purposes
-	var muTest = &sync.Mutex{}
+	muTest := new(sync.Mutex)
 	muTest.Lock()
 
 	//////////////////////////////////////////////////////
 	//functions for defining new readers and writers
 
-	newPTR := func(urlUsername, urlPassword, urlCIdName string) *PwkTreeReader {
+	//define the passwerk tree reader
+	updatePTR := func(urlUsername, urlPassword, urlCIdName string) {
+
 		hashInputCIdNameEncryption := path.Join(urlUsername, urlPassword)
 		hashInputCPasswordEncryption := path.Join(urlCIdName, urlPassword, urlUsername)
 		usernameHashed := cry.GetHashedHexString(urlUsername)
 		passwordHashed := cry.GetHashedHexString(urlPassword)
 
-		return &PwkTreeReader{
-			Db:                           pwkDBROIn,
-			Tree:                         stateROIn,
-			MerkleCacheSize:              0,
-			UsernameHashed:               usernameHashed,
-			PasswordHashed:               passwordHashed,
-			Mu:                           muTest,
-			CIdNameUnencrypted:           urlCIdName,
-			HashInputCIdNameEncryption:   hashInputCIdNameEncryption,
-			HashInputCPasswordEncryption: hashInputCPasswordEncryption,
-		}
+		ptr.SetVariables(
+			usernameHashed,
+			passwordHashed,
+			urlCIdName,
+			hashInputCIdNameEncryption,
+			hashInputCPasswordEncryption,
+		)
 	}
 
-	//the forDeleting term specifies if the ptw will be used for deleting
-	newPTW := func(forDeleting bool, urlUsername, urlPassword, urlCIdName string) (ptw *PwkTreeWriter, err error) {
+	//define the passwerk tree writer
+	// -the forDeleting term specifies if the ptw will be used for deleting as opposed to writing
+	updatePTW := func(forDeleting bool, urlUsername, urlPassword, urlCIdName string) (err error) {
+
 		hashInputCIdNameEncryption := path.Join(urlUsername, urlPassword)
 		usernameHashed := cry.GetHashedHexString(urlUsername)
 		passwordHashed := cry.GetHashedHexString(urlPassword)
@@ -69,26 +68,23 @@ func TestTree(t *testing.T) {
 
 		var encryptedCIdName string
 		if forDeleting {
-			tempPtr := newPTR(urlUsername, urlPassword, urlCIdName)
-			encryptedCIdName, err = tempPtr.GetCIdListEncryptedCIdName()
+			updatePTR(urlUsername, urlPassword, urlCIdName)
+			encryptedCIdName, err = ptr.GetCIdListEncryptedCIdName()
 		} else {
 			encryptedCIdName = cry.GetEncryptedHexString(hashInputCIdNameEncryption, urlCIdName)
 		}
 
-		ptw = &PwkTreeWriter{
-			Db:               pwkDBIn,
-			Tree:             stateIn,
-			MerkleCacheSize:  0,
-			UsernameHashed:   usernameHashed,
-			PasswordHashed:   passwordHashed,
-			CIdNameHashed:    cIdNameHashed,
-			CIdNameEncrypted: encryptedCIdName,
-		}
+		ptw.SetVariables(
+			usernameHashed,
+			passwordHashed,
+			cIdNameHashed,
+			encryptedCIdName,
+		)
 
 		return
 	}
 
-	getEncryptedCPassword := func(urlPassword, urlUsername, urlCIdName, urlCPassword string) string {
+	getEncryptedCPassword := func(urlUsername, urlPassword, urlCIdName, urlCPassword string) string {
 		hashInputCPasswordEncryption := path.Join(urlCIdName, urlPassword, urlUsername)
 		return cry.GetEncryptedHexString(hashInputCPasswordEncryption, urlCPassword)
 	}
@@ -108,25 +104,23 @@ func TestTree(t *testing.T) {
 	cPwd := []string{"savedPass1", "savedPass2"}
 
 	//create two new records
+	testErrBasic(updatePTW(false, mUsr, mPwd, cId[0]))
 	enPass1 := getEncryptedCPassword(mUsr, mPwd, cId[0], cPwd[0])
-	enPass2 := getEncryptedCPassword(mUsr, mPwd, cId[1], cPwd[1])
-	ptw1, err := newPTW(false, mUsr, mPwd, cId[0])
-	testErrBasic(err)
-	ptw2, err := newPTW(false, mUsr, mPwd, cId[1])
-	testErrBasic(err)
+	ptw.NewRecord(enPass1)
 
-	ptw1.NewRecord(enPass1)
-	ptw2.NewRecord(enPass2)
+	testErrBasic(updatePTW(false, mUsr, mPwd, cId[1]))
+	enPass2 := getEncryptedCPassword(mUsr, mPwd, cId[1], cPwd[1])
+	ptw.NewRecord(enPass2)
 
 	//authenticate
-	ptr1 := newPTR(mUsr, mPwd, cId[0])
-	if !ptr1.Authenticate() {
+	updatePTR(mUsr, mPwd, cId[0])
+	if !ptr.Authenticate() {
 		t.Errorf("bad authentication when expected good authentication")
 	}
 
 	//retrieve list
-	cIdNames, err := ptr1.RetrieveCIdNames()
-	testErrBasic(err)
+	cIdNames, err1 := ptr.RetrieveCIdNames()
+	testErrBasic(err1)
 
 	//note that the list begins and ends with a blank record, so the size must be at least 4 if there are two records held
 	if len(cIdNames) < 4 {
@@ -134,49 +128,42 @@ func TestTree(t *testing.T) {
 	} else {
 		if (cIdNames[1]) != cId[0] {
 			t.Errorf("in the cIdName List got " + cIdNames[1] + " but expected " + cId[0])
-			//t.Errorf(cIdNames[0] + " | " + cIdNames[1] + " | " + cIdNames[2] + " | " + cIdNames[3])
 		}
 		if (cIdNames[2]) != cId[1] {
 			t.Errorf("in the cIdName List got " + cIdNames[2] + " but expected " + cId[1])
 		}
 	}
 
-	//<incomplete code> test is not working
 	//retrieve a cPassword
-	//cPassword, err := ptr1.RetrieveCPassword()
-	//testErrBasic(err)
-	//if cPassword != cPwd[0] {
-	//	t.Errorf("bad password retrieve got " + cPassword + " but expected " + cPwd[0])
-	//}
+	cPassword, err2 := ptr.RetrieveCPassword()
+	testErrBasic(err2)
+	if cPassword != cPwd[0] {
+		t.Errorf("bad password retrieve got " + cPassword + " but expected " + cPwd[0])
+	}
 
 	//bad retrieve a cPassword
-	ptr2 := newPTR(mUsr, mPwd, "garbullygoop")
-	_, err = ptr2.RetrieveCPassword()
-	if err == nil {
+	updatePTR(mUsr, mPwd, "garbullygoop")
+	_, err3 := ptr.RetrieveCPassword()
+	if err3 == nil {
 		t.Errorf("bad password retrieval does not produce an expected error")
 	}
-	err = nil
 
 	//open a bad ptw (aka if attempting to perform a bad delete)
-	ptwBad, err := newPTW(true, mUsr, mPwd, "garbullyGoop")
-	testErrBasic(err)
-	err = ptwBad.DeleteRecord()
-	if err == nil {
+	testErrBasic(updatePTW(true, mUsr, mPwd, "garbullyGoop"))
+	err4 := ptw.DeleteRecord()
+	if err4 == nil {
 		t.Errorf("bad PTW does not produce error")
 	}
 
 	//delete the two records
-	ptw3, err := newPTW(true, mUsr, mPwd, cId[0])
-	testErrBasic(err)
-	ptw4, err := newPTW(true, mUsr, mPwd, cId[1])
-	testErrBasic(err)
-	err = ptw3.DeleteRecord()
-	testErrBasic(err)
-	err = ptw4.DeleteRecord()
-	testErrBasic(err)
+	testErrBasic(updatePTW(true, mUsr, mPwd, cId[0]))
+	testErrBasic(ptw.DeleteRecord())
+	testErrBasic(updatePTW(true, mUsr, mPwd, cId[1]))
+	testErrBasic(ptw.DeleteRecord())
 
 	//authenticate, but should be denied because user has all records deleted
-	if ptr1.Authenticate() {
+	updatePTR(mUsr, mPwd, cId[0])
+	if ptr.Authenticate() {
 		t.Errorf("good authentication when expected bad authentication")
 	}
 

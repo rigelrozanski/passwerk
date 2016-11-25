@@ -12,32 +12,27 @@ import (
 	"sync"
 	"time"
 
-	cmn "github.com/rigelrozanski/passwerk/common"
 	cry "github.com/rigelrozanski/passwerk/crypto"
-	"github.com/rigelrozanski/passwerk/tree"
+	tre "github.com/rigelrozanski/passwerk/tree"
 )
 
 type UIApp struct {
-	mu              *sync.Mutex
-	state           cmn.MerkleTreeReadOnly
-	pwkDB           cmn.DBReadOnly
-	stateHashKey    []byte
-	merkleCacheSize int
-	portUI          string
-
-	testing bool // true during testing TODO: remove skipTxBroadcast etc
+	mu      *sync.Mutex
+	ptr     tre.PwkTreeReader
+	portUI  string
+	testing bool // true during testing
 }
 
-func HTTPListener(muIn *sync.Mutex, stateIn cmn.MerkleTreeReadOnly,
-	pwkDBIn cmn.DBReadOnly, stateHashKeyIn []byte, merkleCacheSizeIn int, portUIIn string) {
+func HTTPListener(mu *sync.Mutex,
+	ptr tre.PwkTreeReader,
+	portUI string,
+	testing bool) {
 
 	app := &UIApp{
-		mu:              muIn,
-		state:           stateIn,
-		pwkDB:           pwkDBIn,
-		stateHashKey:    stateHashKeyIn,
-		merkleCacheSize: merkleCacheSizeIn,
-		portUI:          portUIIn,
+		mu:      mu,
+		ptr:     ptr,
+		portUI:  portUI,
+		testing: testing,
 	}
 
 	http.HandleFunc("/", app.UIInputHandler)
@@ -77,19 +72,19 @@ func (app *UIApp) UIInputHandler(w http.ResponseWriter, r *http.Request) {
 
 	var dummyStringPtr [2]*string
 
-	UIoutput := getUIoutput(app.performOperation(urlString, false, dummyStringPtr))
+	UIoutput := getUIoutput(app.performOperation(urlString, dummyStringPtr))
 	fmt.Fprintf(w, UIoutput)
 
 	return
 }
 
-func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBroadcastStr [2]*string) (err error,
+func (app *UIApp) performOperation(urlString string, txBroadcastStr [2]*string) (
 	urlUsername, //		2nd URL section - <manditory> master username to be read or written from
 	urlPassword, //		3rd URL section - <manditory> master password to be read or written with
 	urlCIdName, //		4th URL section - <optional> cipherable indicator name for the password
 	speachBubble, //	speach bubble text for the ASCII assailant
 	idNameList string, //	list of all the stored records which will be output if requested by the user (readingIdNames)
-) {
+	err error) {
 
 	//definitions
 	var urlOptionText string       //1st URL section - <manditory>  indicates the user write mode
@@ -124,7 +119,7 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 	cIdNameHashed := cry.GetHashedHexString(urlCIdName)
 
 	//These two strings generated the hashes which are used for encryption and decryption of passwords
-	//<sloppy code> is there maybe a more secure mechanism to create a shared key equivalent?
+	//TODO create more secure shared key equivalent
 	hashInputCIdNameEncryption := path.Join(urlUsername, urlPassword)
 	hashInputCPasswordEncryption := path.Join(urlCIdName, urlPassword, urlUsername)
 
@@ -135,21 +130,17 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 		return
 	}
 
-	ptr := &tree.PwkTreeReader{
-		Db:                           app.pwkDB,
-		Tree:                         app.state,
-		MerkleCacheSize:              app.merkleCacheSize,
-		UsernameHashed:               usernameHashed,
-		PasswordHashed:               passwordHashed,
-		Mu:                           app.mu,
-		CIdNameUnencrypted:           urlCIdName,
-		HashInputCIdNameEncryption:   hashInputCIdNameEncryption,
-		HashInputCPasswordEncryption: hashInputCPasswordEncryption,
-	}
+	app.ptr.SetVariables(
+		usernameHashed,
+		passwordHashed,
+		urlCIdName,
+		hashInputCIdNameEncryption,
+		hashInputCPasswordEncryption,
+	)
 
 	//performing authentication (don't need to authenicate for writing passwords)
 	if operationalOption != "writing" &&
-		!ptr.Authenticate() {
+		!app.ptr.Authenticate() {
 		err = errors.New("badAuthentication")
 		return
 	}
@@ -157,9 +148,8 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 	// performing operation
 	switch operationalOption {
 	case "readingIdNames":
-
 		var idNameListArray []string
-		idNameListArray, err = ptr.RetrieveCIdNames()
+		idNameListArray, err = app.ptr.RetrieveCIdNames()
 		if err != nil {
 			return
 		}
@@ -172,7 +162,7 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 
 	case "readingPassword":
 		var cPasswordDecrypted string
-		cPasswordDecrypted, err = ptr.RetrieveCPassword()
+		cPasswordDecrypted, err = app.ptr.RetrieveCPassword()
 
 		if err != nil {
 			return
@@ -182,7 +172,7 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 	case "deleting":
 		//determine encrypted text to delete
 		var mapCIdNameEncrypted2Delete string
-		mapCIdNameEncrypted2Delete, err = ptr.GetCIdListEncryptedCIdName()
+		mapCIdNameEncrypted2Delete, err = app.ptr.GetCIdListEncryptedCIdName()
 
 		if err != nil {
 			return
@@ -192,14 +182,14 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 
 			//create he tx then broadcast
 			tx2broadcast := path.Join(
-				timeStampString(),
+				now(),
 				operationalOption,
 				usernameHashed,
 				passwordHashed,
 				cIdNameHashed,
 				mapCIdNameEncrypted2Delete)
 
-			if skipTxBroadcast {
+			if app.testing {
 				*txBroadcastStr[0] = tx2broadcast
 			} else {
 				app.broadcastTxFromString(tx2broadcast)
@@ -216,18 +206,18 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 		//do not worry about error handling here for records that do not exist
 		//  it doesn't really matter if there is nothing to delete
 		var mapCIdNameEncrypted2Delete string
-		mapCIdNameEncrypted2Delete, err = ptr.GetCIdListEncryptedCIdName()
+		mapCIdNameEncrypted2Delete, err = app.ptr.GetCIdListEncryptedCIdName()
 		if len(mapCIdNameEncrypted2Delete) >= 0 && err == nil {
 
 			//create he tx then broadcast
 			tx2broadcast := path.Join(
-				timeStampString(),
+				now(),
 				"deleting",
 				usernameHashed,
 				passwordHashed,
 				cIdNameHashed,
 				mapCIdNameEncrypted2Delete)
-			if skipTxBroadcast {
+			if app.testing {
 				*txBroadcastStr[0] = tx2broadcast
 			} else {
 				app.broadcastTxFromString(tx2broadcast)
@@ -240,14 +230,14 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 		//now write the records
 		//create he tx then broadcast
 		tx2broadcast := path.Join(
-			timeStampString(),
+			now(),
 			operationalOption,
 			usernameHashed,
 			passwordHashed,
 			cIdNameHashed,
 			cry.GetEncryptedHexString(hashInputCIdNameEncryption, urlCIdName),
 			cry.GetEncryptedHexString(hashInputCPasswordEncryption, urlCPassword))
-		if skipTxBroadcast {
+		if app.testing {
 			*txBroadcastStr[1] = tx2broadcast
 		} else {
 			app.broadcastTxFromString(tx2broadcast)
@@ -260,8 +250,12 @@ func (app *UIApp) performOperation(urlString string, skipTxBroadcast bool, txBro
 	return
 }
 
-func getOperationalOption(notSelected, urlOptionText, urlUsername,
-	urlPassword, urlCIdName, urlCPassword string) (string, error) {
+func getOperationalOption(notSelected,
+	urlOptionText,
+	urlUsername,
+	urlPassword,
+	urlCIdName,
+	urlCPassword string) (string, error) {
 
 	//This function returns true if any of the input array have the value of notSelected
 	anyAreNotSelected := func(inputs []string) bool {
@@ -302,7 +296,13 @@ func getOperationalOption(notSelected, urlOptionText, urlUsername,
 	}
 }
 
-func getUIoutput(err error, urlUsername, urlPassword, urlCIdName, speachBubble, idNameList string) string {
+func getUIoutput(
+	urlUsername,
+	urlPassword,
+	urlCIdName,
+	speachBubble,
+	idNameList string,
+	err error) string {
 
 	if len(speachBubble) < 1 {
 		speachBubble = "i h8 myslf"
@@ -352,6 +352,6 @@ func getUIoutput(err error, urlUsername, urlPassword, urlCIdName, speachBubble, 
 
 }
 
-func timeStampString() string {
+func now() string {
 	return time.Now().Format(time.StampMicro)
 }

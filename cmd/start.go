@@ -3,15 +3,17 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"path"
 	"sync"
 
 	cmn "github.com/rigelrozanski/passwerk/common"
 	pwkTMSP "github.com/rigelrozanski/passwerk/tmsp"
+	tre "github.com/rigelrozanski/passwerk/tree"
 	"github.com/rigelrozanski/passwerk/ui"
 
 	"github.com/spf13/cobra"
 	. "github.com/tendermint/go-common"
-	"github.com/tendermint/go-db"
+	dbm "github.com/tendermint/go-db"
 	"github.com/tendermint/go-merkle"
 	"github.com/tendermint/tmsp/server"
 )
@@ -47,7 +49,7 @@ func startRun(cmd *cobra.Command, args []string) {
 	/////////////////////////////////////
 
 	//Keyz for db values which hold information which isn't the contents of a Merkle tree
-	dBKeyMerkleHash := []byte("mommaHash")
+	dBKeyMerkleHash := []byte(cmn.DBKeyMerkleHash)
 
 	//setup the persistent merkle tree to be used by both the UI and TMSP
 	oldDBNotPresent, _ := cmn.IsDirEmpty(path.Join(dBPath, dBName) + ".db")
@@ -59,7 +61,7 @@ func startRun(cmd *cobra.Command, args []string) {
 	}
 
 	//open the db, if the db doesn't exist it will be created
-	pwkDB := db.NewDB(dBName, db.DBBackendLevelDB, dBPath)
+	pwkDB := dbm.NewDB(dBName, dbm.DBBackendLevelDB, dBPath)
 
 	var state merkle.Tree
 	state = merkle.NewIAVLTree(cacheSize, pwkDB)
@@ -70,29 +72,33 @@ func startRun(cmd *cobra.Command, args []string) {
 	}
 	state.Load(pwkDB.Get([]byte(dBKeyMerkleHash)))
 
+	//define the pwkTree which will be fed into UI and TMSP
+	//pwkTree will be limited to read only when fed into the UI
+	pwkTree := tre.NewPwkMerkleTree(state, cacheSize, pwkDB)
+
+	var pR tre.TreeReading = pwkTree
+	var pW tre.TreeWriting = pwkTree
+
+	//define the readers and writers for UI and TMSP respectively
+	ptr := tre.NewPwkTreeReader(pR, "", "", "", "", "") //initilize blank reader variables, updated in UI
+	ptw := tre.NewPwkTreeWriter(pW, "", "", "", "")     //initilize blank reader variables, updated in TMSP
+
 	////////////////////////////////////
 	//  Start UI
-	////////////////////////////////////
-
-	stateReadOnly := state.(cmn.MerkleTreeReadOnly)
-	pwkDBReadOnly := cmn.DBReadOnly{DBFile: pwkDB,
-		DBPath: dBPath,
-		DBName: dBName,
-	}
-	go ui.HTTPListener(mu, stateReadOnly, pwkDBReadOnly, dBKeyMerkleHash, cacheSize, portUI) //start on a seperate Thread
+	go ui.HTTPListener(mu, ptr, portUI, false) //start on a seperate Thread
 
 	////////////////////////////////////
 	//  Start TMSP
-	////////////////////////////////////
 
 	// Start the listener
-	_, err := server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(mu, state, pwkDB, dBKeyMerkleHash, cacheSize))
+	_, err := server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(mu, ptw))
+
 	if err != nil {
 		Exit(err.Error())
 	}
 
 	// Wait forever
 	TrapSignal(func() {
-		// TODO: tear down database
+		pwkDB.Close()
 	})
 }
