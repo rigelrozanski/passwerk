@@ -1,5 +1,4 @@
 //This package tests the tree package
-
 package tree
 
 import (
@@ -43,14 +42,12 @@ func TestTree(t *testing.T) {
 	//define the passwerk tree reader
 	updatePTR := func(urlUsername, urlPassword, urlCIdName string) {
 
-		hashInputCIdNameEncryption := path.Join(urlUsername, urlPassword)
-		hashInputCPasswordEncryption := path.Join(urlCIdName, urlPassword, urlUsername)
+		hashInputCIdNameEncryption := HashInputCIdNameEncryption(urlUsername, urlPassword)
+		hashInputCPasswordEncryption := HashInputCPasswordEncryption(urlUsername, urlPassword, urlCIdName)
 		usernameHashed := cry.GetHashedHexString(urlUsername)
-		passwordHashed := cry.GetHashedHexString(urlPassword)
 
 		ptr.SetVariables(
 			usernameHashed,
-			passwordHashed,
 			urlCIdName,
 			hashInputCIdNameEncryption,
 			hashInputCPasswordEncryption,
@@ -63,7 +60,6 @@ func TestTree(t *testing.T) {
 
 		hashInputCIdNameEncryption := path.Join(urlUsername, urlPassword)
 		usernameHashed := cry.GetHashedHexString(urlUsername)
-		passwordHashed := cry.GetHashedHexString(urlPassword)
 		cIdNameHashed := cry.GetHashedHexString(urlCIdName)
 
 		var encryptedCIdName string
@@ -76,7 +72,6 @@ func TestTree(t *testing.T) {
 
 		ptw.SetVariables(
 			usernameHashed,
-			passwordHashed,
 			cIdNameHashed,
 			encryptedCIdName,
 		)
@@ -114,7 +109,7 @@ func TestTree(t *testing.T) {
 
 	//authenticate
 	updatePTR(mUsr, mPwd, cId[0])
-	if !ptr.Authenticate() {
+	if !ptr.AuthMasterPassword() {
 		t.Errorf("bad authentication when expected good authentication")
 	}
 
@@ -163,7 +158,7 @@ func TestTree(t *testing.T) {
 
 	//authenticate, but should be denied because user has all records deleted
 	updatePTR(mUsr, mPwd, cId[0])
-	if ptr.Authenticate() {
+	if ptr.AuthMasterPassword() {
 		t.Errorf("good authentication when expected bad authentication")
 	}
 

@@ -52,9 +52,8 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 
 	app.ptw.SetVariables(
 		parts[2], //usernameHashed,
-		parts[3], //passwordHashed,
-		parts[4], //cIdNameHashed,
-		parts[5], //mapCIdNameEncrypted2Delete
+		parts[3], //cIdNameHashed,
+		parts[4], //mapCIdNameEncrypted
 	)
 
 	//lock and perform main appendTx functionality
@@ -63,7 +62,7 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 
 	switch operationalOption {
 	case "writing":
-		err := app.ptw.NewRecord(parts[6]) //parts[6] is cPasswordEncrypted
+		err := app.ptw.NewRecord(parts[5]) //parts[6] is cPasswordEncrypted
 		if err != nil {
 			return badReturn(err.Error())
 		}
@@ -105,20 +104,22 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 
 	switch operationalOption {
 	case "writing":
-		if len(parts) < 7 {
-			return badReturn("Invalid number of TX parts")
-		}
-	case "deleting":
 		if len(parts) < 6 {
 			return badReturn("Invalid number of TX parts")
 		}
+		//TODO add proof-of-valid-transaction verification
+
+	case "deleting":
+		if len(parts) < 5 {
+			return badReturn("Invalid number of TX parts")
+		}
+		//TODO add proof-of-valid-transaction verification
 
 		usernameHashed := parts[2]
-		passwordHashed := parts[3]
-		cIdNameHashed := parts[4]
-		cIdNameEncrypted := parts[5]
+		cIdNameHashed := parts[3]
+		cIdNameEncrypted := parts[4]
 
-		app.ptw.SetVariables(usernameHashed, passwordHashed, cIdNameHashed, cIdNameEncrypted)
+		app.ptw.SetVariables(usernameHashed, cIdNameHashed, cIdNameEncrypted)
 
 		subTree, err := app.ptw.LoadSubTree()
 
@@ -126,8 +127,8 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 			return badReturn("bad sub tree")
 		}
 
-		treeRecordExists := subTree.Has(tre.GetRecordKey(usernameHashed, passwordHashed, cIdNameHashed))
-		_, mapValues, mapExists := subTree.Get(tre.GetCIdListKey(usernameHashed, passwordHashed))
+		treeRecordExists := subTree.Has(tre.GetRecordKey(usernameHashed, cIdNameHashed))
+		_, mapValues, mapExists := subTree.Get(tre.GetCIdListKey(usernameHashed))
 		containsCIdNameEncrypted := strings.Contains(string(mapValues), "/"+cIdNameEncrypted+"/")
 
 		//check to make sure the record exists to be deleted

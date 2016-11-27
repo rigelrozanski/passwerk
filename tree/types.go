@@ -1,4 +1,3 @@
-//This package is charged with the user interface and functionality
 package tree
 
 import (
@@ -19,7 +18,7 @@ type TreeReading interface {
 	GetByIndex(index int) (key []byte, value []byte)
 	Hash() (hash []byte)
 
-	LoadSubTree(UsernameHashed, PasswordHashed string) (PwkMerkleTree, error)
+	LoadSubTree(UsernameHashed string) (PwkMerkleTree, error)
 }
 
 type TreeWriting interface {
@@ -36,9 +35,9 @@ type TreeWriting interface {
 	Save() (hash []byte)
 	Copy() merkle.Tree
 
-	LoadSubTree(UsernameHashed, PasswordHashed string) (PwkMerkleTree, error)
-	NewSubTree(UsernameHashed, PasswordHashed string) PwkMerkleTree
-	SaveSubTree(UsernameHashed, PasswordHashed string, subTree PwkMerkleTree)
+	LoadSubTree(UsernameHashed string) (PwkMerkleTree, error)
+	NewSubTree(UsernameHashed string) PwkMerkleTree
+	SaveSubTree(UsernameHashed string, subTree PwkMerkleTree)
 
 	SaveMommaTree()
 }
@@ -119,10 +118,10 @@ func (tr PwkMerkleTree) Copy() merkle.Tree {
 
 //the momma merkle tree has sub-merkle tree state (output for .Save())
 // stored as the value in the key-value pair in the momma tree
-func (tr PwkMerkleTree) LoadSubTree(UsernameHashed, PasswordHashed string) (PwkMerkleTree, error) {
+func (tr PwkMerkleTree) LoadSubTree(UsernameHashed string) (PwkMerkleTree, error) {
 
 	subTree := merkle.NewIAVLTree(tr.cacheSize, tr.db)
-	_, treeOutHash2Load, exists := tr.tree.Get(getMapKey(UsernameHashed, PasswordHashed))
+	_, treeOutHash2Load, exists := tr.tree.Get(getMapKey(UsernameHashed))
 	if !exists {
 		return tr, errors.New("sub tree doesn't exist") //return the root tree
 	}
@@ -135,14 +134,14 @@ func (tr PwkMerkleTree) LoadSubTree(UsernameHashed, PasswordHashed string) (PwkM
 	}, nil
 }
 
-func (tr PwkMerkleTree) SaveSubTree(UsernameHashed, PasswordHashed string, subTree PwkMerkleTree) {
-	tr.tree.Set(getMapKey(UsernameHashed, PasswordHashed), subTree.Save())
+func (tr PwkMerkleTree) SaveSubTree(UsernameHashed string, subTree PwkMerkleTree) {
+	tr.tree.Set(getMapKey(UsernameHashed), subTree.Save())
 }
 
-func (tr PwkMerkleTree) NewSubTree(UsernameHashed, PasswordHashed string) PwkMerkleTree {
+func (tr PwkMerkleTree) NewSubTree(UsernameHashed string) PwkMerkleTree {
 
 	subTree := merkle.NewIAVLTree(tr.cacheSize, tr.db)
-	tr.tree.Set(getMapKey(UsernameHashed, PasswordHashed), subTree.Save())
+	tr.tree.Set(getMapKey(UsernameHashed), subTree.Save())
 
 	return PwkMerkleTree{
 		tree:      subTree,

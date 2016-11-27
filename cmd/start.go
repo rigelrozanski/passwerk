@@ -80,8 +80,8 @@ func startRun(cmd *cobra.Command, args []string) {
 	var pW tre.TreeWriting = pwkTree
 
 	//define the readers and writers for UI and TMSP respectively
-	ptr := tre.NewPwkTreeReader(pR, "", "", "", "", "") //initilize blank reader variables, updated in UI
-	ptw := tre.NewPwkTreeWriter(pW, "", "", "", "")     //initilize blank reader variables, updated in TMSP
+	ptr := tre.NewPwkTreeReader(pR, "", "", "", "") //initilize blank reader variables, updated in UI
+	ptw := tre.NewPwkTreeWriter(pW, "", "", "")     //initilize blank reader variables, updated in TMSP
 
 	////////////////////////////////////
 	//  Start UI

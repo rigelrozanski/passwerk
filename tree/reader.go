@@ -1,4 +1,3 @@
-//This package is charged managment of the Merkle-Tree and Sub-Trees
 package tree
 
 import (
@@ -15,7 +14,6 @@ type PwkTreeReader struct {
 
 type ReaderVariables struct {
 	usernameHashed               string
-	passwordHashed               string
 	cIdNameUnencrypted           string
 	hashInputCIdNameEncryption   string
 	hashInputCPasswordEncryption string
@@ -24,13 +22,12 @@ type ReaderVariables struct {
 func NewPwkTreeReader(
 	tree TreeReading,
 	usernameHashed string,
-	passwordHashed string,
 	cIdNameUnencrypted string,
 	hashInputCIdNameEncryption string,
 	hashInputCPasswordEncryption string) PwkTreeReader {
 
-	rVar := ReaderVariables{usernameHashed: usernameHashed,
-		passwordHashed:               passwordHashed,
+	rVar := ReaderVariables{
+		usernameHashed:               usernameHashed,
 		cIdNameUnencrypted:           cIdNameUnencrypted,
 		hashInputCIdNameEncryption:   hashInputCIdNameEncryption,
 		hashInputCPasswordEncryption: hashInputCPasswordEncryption,
@@ -44,14 +41,12 @@ func NewPwkTreeReader(
 
 func (ptr *PwkTreeReader) SetVariables(
 	usernameHashed,
-	passwordHashed,
 	cIdNameUnencrypted,
 	hashInputCIdNameEncryption,
 	hashInputCPasswordEncryption string) {
 
 	ptr.rVar = ReaderVariables{
 		usernameHashed:               usernameHashed,
-		passwordHashed:               passwordHashed,
 		cIdNameUnencrypted:           cIdNameUnencrypted,
 		hashInputCIdNameEncryption:   hashInputCIdNameEncryption,
 		hashInputCPasswordEncryption: hashInputCPasswordEncryption,
@@ -63,7 +58,7 @@ func (ptr *PwkTreeReader) SetVariables(
 ////////////////////////////////////////////
 
 func (ptr *PwkTreeReader) loadSubTree() (TreeReading, error) {
-	subTree, err := ptr.tree.LoadSubTree(ptr.rVar.usernameHashed, ptr.rVar.passwordHashed)
+	subTree, err := ptr.tree.LoadSubTree(ptr.rVar.usernameHashed)
 
 	var outTree TreeReading = subTree
 	return outTree, err
@@ -73,10 +68,19 @@ func (ptr *PwkTreeReader) loadSubTree() (TreeReading, error) {
 // Main Functions
 /////////////////////////////
 
-//authenticate that the user is in the system
-func (ptr *PwkTreeReader) Authenticate() bool {
-	mapKey := getMapKey(ptr.rVar.usernameHashed, ptr.rVar.passwordHashed)
-	return ptr.tree.Has(mapKey)
+//authenticate the master password if
+func (ptr *PwkTreeReader) AuthMasterPassword() bool {
+
+	//first check if the username exists
+	if !ptr.tree.Has(getMapKey(ptr.rVar.usernameHashed)) {
+		return false
+	}
+
+	_, err := ptr.RetrieveCIdNames()
+	if err != nil {
+		return false
+	}
+	return true
 }
 
 //retrieve and decrypt the list of saved passwords under and account
@@ -89,7 +93,7 @@ func (ptr *PwkTreeReader) RetrieveCIdNames() (cIdNames []string, err error) {
 		return
 	}
 
-	cIdListKey := GetCIdListKey(ptr.rVar.usernameHashed, ptr.rVar.passwordHashed)
+	cIdListKey := GetCIdListKey(ptr.rVar.usernameHashed)
 	if subTree.Has(cIdListKey) {
 		_, mapValues, _ := subTree.Get(cIdListKey)
 
@@ -121,7 +125,7 @@ func (ptr *PwkTreeReader) RetrieveCPassword() (cPassword string, err error) {
 		return
 	}
 
-	cPasswordKey := GetRecordKey(ptr.rVar.usernameHashed, ptr.rVar.passwordHashed, cry.GetHashedHexString(ptr.rVar.cIdNameUnencrypted))
+	cPasswordKey := GetRecordKey(ptr.rVar.usernameHashed, cry.GetHashedHexString(ptr.rVar.cIdNameUnencrypted))
 	if subTree.Has(cPasswordKey) {
 		_, cPasswordEncrypted, _ := subTree.Get(cPasswordKey)
 		cPassword, err = cry.ReadDecrypted(ptr.rVar.hashInputCPasswordEncryption, string(cPasswordEncrypted))
@@ -142,7 +146,7 @@ func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted str
 		return
 	}
 
-	cIdListKey := GetCIdListKey(ptr.rVar.usernameHashed, ptr.rVar.passwordHashed)
+	cIdListKey := GetCIdListKey(ptr.rVar.usernameHashed)
 	_, cIdListValues, exists := subTree.Get(cIdListKey)
 
 	if exists == false {

@@ -115,13 +115,12 @@ func (app *UIApp) performOperation(urlString string, txBroadcastStr [2]*string) 
 	urlCPassword = urlStringSplit[4]
 
 	usernameHashed := cry.GetHashedHexString(urlUsername)
-	passwordHashed := cry.GetHashedHexString(urlPassword)
 	cIdNameHashed := cry.GetHashedHexString(urlCIdName)
 
 	//These two strings generated the hashes which are used for encryption and decryption of passwords
 	//TODO create more secure shared key equivalent
-	hashInputCIdNameEncryption := path.Join(urlUsername, urlPassword)
-	hashInputCPasswordEncryption := path.Join(urlCIdName, urlPassword, urlUsername)
+	hashInputCIdNameEncryption := tre.HashInputCIdNameEncryption(urlUsername, urlPassword)
+	hashInputCPasswordEncryption := tre.HashInputCPasswordEncryption(urlUsername, urlPassword, urlCIdName)
 
 	var operationalOption string
 	operationalOption, err = getOperationalOption(notSelected, urlOptionText, urlUsername,
@@ -132,7 +131,6 @@ func (app *UIApp) performOperation(urlString string, txBroadcastStr [2]*string) 
 
 	app.ptr.SetVariables(
 		usernameHashed,
-		passwordHashed,
 		urlCIdName,
 		hashInputCIdNameEncryption,
 		hashInputCPasswordEncryption,
@@ -140,7 +138,7 @@ func (app *UIApp) performOperation(urlString string, txBroadcastStr [2]*string) 
 
 	//performing authentication (don't need to authenicate for writing passwords)
 	if operationalOption != "writing" &&
-		!app.ptr.Authenticate() {
+		!app.ptr.AuthMasterPassword() {
 		err = errors.New("badAuthentication")
 		return
 	}
@@ -185,7 +183,6 @@ func (app *UIApp) performOperation(urlString string, txBroadcastStr [2]*string) 
 				now(),
 				operationalOption,
 				usernameHashed,
-				passwordHashed,
 				cIdNameHashed,
 				mapCIdNameEncrypted2Delete)
 
@@ -214,7 +211,6 @@ func (app *UIApp) performOperation(urlString string, txBroadcastStr [2]*string) 
 				now(),
 				"deleting",
 				usernameHashed,
-				passwordHashed,
 				cIdNameHashed,
 				mapCIdNameEncrypted2Delete)
 			if app.testing {
@@ -233,7 +229,6 @@ func (app *UIApp) performOperation(urlString string, txBroadcastStr [2]*string) 
 			now(),
 			operationalOption,
 			usernameHashed,
-			passwordHashed,
 			cIdNameHashed,
 			cry.GetEncryptedHexString(hashInputCIdNameEncryption, urlCIdName),
 			cry.GetEncryptedHexString(hashInputCPasswordEncryption, urlCPassword))

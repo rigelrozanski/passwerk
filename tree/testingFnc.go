@@ -35,8 +35,8 @@ func InitTestingDB() (pwkDb dbm.DB, ptw PwkTreeWriter, ptr PwkTreeReader, err er
 	var pW TreeWriting = pwkTree
 
 	//define the readers and writers for UI and TMSP respectively
-	ptr = NewPwkTreeReader(pR, "", "", "", "", "") //initilize blank reader variables, updated in UI
-	ptw = NewPwkTreeWriter(pW, "", "", "", "")     //initilize blank reader variables, updated in TMSP
+	ptr = NewPwkTreeReader(pR, "", "", "", "") //initilize blank reader variables, updated in UI
+	ptw = NewPwkTreeWriter(pW, "", "", "")     //initilize blank reader variables, updated in TMSP
 
 	return
 }
