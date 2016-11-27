@@ -3,6 +3,7 @@ package tree
 
 import (
 	"errors"
+	"sync"
 
 	cmn "github.com/rigelrozanski/passwerk/common"
 	dbm "github.com/tendermint/go-db"
@@ -35,8 +36,9 @@ func InitTestingDB() (pwkDb dbm.DB, ptw PwkTreeWriter, ptr PwkTreeReader, err er
 	var pW TreeWriting = pwkTree
 
 	//define the readers and writers for UI and TMSP respectively
-	ptr = NewPwkTreeReader(pR, "", "", "", "") //initilize blank reader variables, updated in UI
-	ptw = NewPwkTreeWriter(pW, "", "", "")     //initilize blank reader variables, updated in TMSP
+	mtx := new(sync.Mutex)                          //lock for data access
+	ptr = NewPwkTreeReader(mtx, pR, "", "", "", "") //initilize blank reader variables, updated in UI
+	ptw = NewPwkTreeWriter(mtx, pW, "", "", "")     //initilize blank reader variables, updated in TMSP
 
 	return
 }

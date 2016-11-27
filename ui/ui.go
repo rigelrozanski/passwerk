@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	cry "github.com/rigelrozanski/passwerk/crypto"
@@ -17,19 +16,17 @@ import (
 )
 
 type UIApp struct {
-	mu      *sync.Mutex
 	ptr     tre.PwkTreeReader
 	portUI  string
 	testing bool // true during testing
 }
 
-func HTTPListener(mu *sync.Mutex,
+func HTTPListener(
 	ptr tre.PwkTreeReader,
 	portUI string,
 	testing bool) {
 
 	app := &UIApp{
-		mu:      mu,
 		ptr:     ptr,
 		portUI:  portUI,
 		testing: testing,
@@ -42,10 +39,6 @@ func HTTPListener(mu *sync.Mutex,
 //This method performs a broadcast_tx_commit call to tendermint
 //<incomplete code> rather than returning the raw html, data should be parsed and return the code, data, and log
 func (app *UIApp) broadcastTxFromString(tx string) (htmlString string) {
-
-	//unlock for broadcasting to tendermint
-	app.mu.Unlock()
-	defer app.mu.Lock()
 
 	urlStringBytes := []byte(tx)
 	urlHexString := hex.EncodeToString(urlStringBytes[:])
@@ -63,11 +56,6 @@ func (app *UIApp) broadcastTxFromString(tx string) (htmlString string) {
 
 //function handles http requests from the passwerk local host (not tendermint local host)
 func (app *UIApp) UIInputHandler(w http.ResponseWriter, r *http.Request) {
-
-	//lock tendermint for app use
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
 	urlString := r.URL.Path[1:]
 
 	var dummyStringPtr [2]*string

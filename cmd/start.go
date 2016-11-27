@@ -41,9 +41,6 @@ func startRun(cmd *cobra.Command, args []string) {
 	tmspPtr := flag.String("tmsp", "socket", "socket | grpc")
 	flag.Parse()
 
-	//lock for data access
-	mu := new(sync.Mutex)
-
 	/////////////////////////////////////
 	//  Load Database
 	/////////////////////////////////////
@@ -80,18 +77,19 @@ func startRun(cmd *cobra.Command, args []string) {
 	var pW tre.TreeWriting = pwkTree
 
 	//define the readers and writers for UI and TMSP respectively
-	ptr := tre.NewPwkTreeReader(pR, "", "", "", "") //initilize blank reader variables, updated in UI
-	ptw := tre.NewPwkTreeWriter(pW, "", "", "")     //initilize blank reader variables, updated in TMSP
+	mtx := new(sync.Mutex)                               //lock for data access
+	ptr := tre.NewPwkTreeReader(mtx, pR, "", "", "", "") //initilize blank reader variables, updated in UI
+	ptw := tre.NewPwkTreeWriter(mtx, pW, "", "", "")     //initilize blank reader variables, updated in TMSP
 
 	////////////////////////////////////
 	//  Start UI
-	go ui.HTTPListener(mu, ptr, portUI, false) //start on a seperate Thread
+	go ui.HTTPListener(ptr, portUI, false) //start on a seperate Thread
 
 	////////////////////////////////////
 	//  Start TMSP
 
 	// Start the listener
-	_, err := server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(mu, ptw))
+	_, err := server.NewServer(*addrPtr, *tmspPtr, pwkTMSP.NewPasswerkApplication(ptw))
 
 	if err != nil {
 		Exit(err.Error())

@@ -4,14 +4,12 @@ package tree
 import (
 	//	"errors"
 	"path"
-	"sync"
 	"testing"
 
 	cry "github.com/rigelrozanski/passwerk/crypto"
 )
 
 func TestTree(t *testing.T) {
-
 	//inititilize DB for testing
 	pwkDb, ptw, ptr, err := InitTestingDB()
 
@@ -31,11 +29,6 @@ func TestTree(t *testing.T) {
 			t.Errorf("err deleting testing DB: ", err.Error())
 		}
 	}()
-
-	//lock for data access, unused for testing purposes
-	muTest := new(sync.Mutex)
-	muTest.Lock()
-
 	//////////////////////////////////////////////////////
 	//functions for defining new readers and writers
 

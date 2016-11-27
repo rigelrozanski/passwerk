@@ -2,7 +2,6 @@
 package tmsp
 
 import (
-	"sync"
 	"testing"
 
 	tre "github.com/rigelrozanski/passwerk/tree"
@@ -26,15 +25,12 @@ func TestTMSP(t *testing.T) {
 		}
 	}()
 
-	//lock for data access, unused for testing purposes
-	muTest := new(sync.Mutex)
-
 	/////////////////////////////
 	// Perform a test broadcast
 	urlStringBytes := []byte("w/masterU/masterP/testID/testPass")
 
 	//note more specific scenarios of broadcast are tested as a part of ui_test.go
-	TestspoofBroadcast(urlStringBytes, muTest, ptw)
+	TestspoofBroadcast(urlStringBytes, ptw)
 
 	if err != nil {
 		t.Errorf(err.Error())

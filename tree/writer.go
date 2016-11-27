@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 type PwkTreeWriter struct {
+	mtx  *sync.Mutex
 	tree TreeWriting
 	wVar WritingVariables
 }
@@ -18,6 +20,7 @@ type WritingVariables struct {
 }
 
 func NewPwkTreeWriter(
+	mtx *sync.Mutex,
 	tree TreeWriting,
 	usernameHashed,
 	cIdNameHashed,
@@ -30,6 +33,7 @@ func NewPwkTreeWriter(
 	}
 
 	return PwkTreeWriter{
+		mtx:  mtx,
 		tree: tree,
 		wVar: wVar,
 	}
@@ -53,15 +57,18 @@ func (ptw *PwkTreeWriter) SetVariables(
 
 //exported because used by CheckTx
 func (ptw *PwkTreeWriter) LoadSubTree() (TreeWriting, error) {
+
 	subTree, err := ptw.tree.LoadSubTree(ptw.wVar.usernameHashed)
 	return subTree, err
 }
 
 func (ptw *PwkTreeWriter) newSubTree() TreeWriting {
+
 	return ptw.tree.NewSubTree(ptw.wVar.usernameHashed)
 }
 
 func (ptw *PwkTreeWriter) saveSubTree(subTree TreeWriting) {
+
 	ptw.tree.SaveSubTree(ptw.wVar.usernameHashed, subTree.(PwkMerkleTree))
 }
 
@@ -70,32 +77,72 @@ func (ptw *PwkTreeWriter) saveSubTree(subTree TreeWriting) {
 ////////////////////////////////////////////
 
 func (ptw *PwkTreeWriter) SaveMommaTree() {
+
+	ptw.mtx.Lock()
+	defer ptw.mtx.Unlock()
+
 	ptw.tree.SaveMommaTree()
 }
 
 func (ptw *PwkTreeWriter) Hash() []byte {
+
+	ptw.mtx.Lock()
+	defer ptw.mtx.Unlock()
+
 	return ptw.tree.Hash()
+}
+
+func (ptw *PwkTreeWriter) VerifyRecordExists() (bool, error) {
+
+	ptw.mtx.Lock()
+	defer ptw.mtx.Unlock()
+
+	subTree, err := ptw.LoadSubTree()
+
+	if err != nil {
+		return false, err
+	}
+
+	treeRecordExists := subTree.Has(GetRecordKey(ptw.wVar.usernameHashed, ptw.wVar.cIdNameHashed))
+	_, mapValues, mapExists := subTree.Get(GetCIdListKey(ptw.wVar.usernameHashed))
+	containsCIdNameEncrypted := strings.Contains(string(mapValues), "/"+ptw.wVar.cIdNameEncrypted+"/")
+
+	//check to make sure the record exists to be deleted
+	if !treeRecordExists ||
+		!mapExists ||
+		!containsCIdNameEncrypted {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (ptw *PwkTreeWriter) DeleteRecord() (err error) {
 
+	ptw.mtx.Lock()
+	defer ptw.mtx.Unlock()
+
 	var subTree TreeWriting
 	subTree, err = ptw.LoadSubTree()
+
+	if err != nil {
+		return
+	}
 
 	//verify the record exists
 	merkleRecordKey := GetRecordKey(ptw.wVar.usernameHashed, ptw.wVar.cIdNameHashed)
 	cIdListKey := GetCIdListKey(ptw.wVar.usernameHashed)
 	_, cIdListValues, cIdListExists := subTree.Get(cIdListKey)
 
-	if subTree.Has(merkleRecordKey) == false ||
-		cIdListExists == false {
+	if !subTree.Has(merkleRecordKey) ||
+		!cIdListExists {
 		err = errors.New("record to delete doesn't exist")
 		return
 	}
 
 	//delete the main record from the merkle.Tree
 	_, successfulRemove := subTree.Remove(merkleRecordKey)
-	if successfulRemove == false {
+	if !successfulRemove {
 		err = errors.New("error deleting the record from subTree")
 		return
 	}
@@ -121,6 +168,9 @@ func (ptw *PwkTreeWriter) DeleteRecord() (err error) {
 
 //must delete any records with the same cIdName before adding a new record
 func (ptw *PwkTreeWriter) NewRecord(cpasswordEncrypted string) (err error) {
+
+	ptw.mtx.Lock()
+	defer ptw.mtx.Unlock()
 
 	var subTree TreeWriting
 	mapKey := getMapKey(ptw.wVar.usernameHashed)

@@ -3,7 +3,6 @@ package tmsp
 
 import (
 	"strings"
-	"sync"
 
 	tre "github.com/rigelrozanski/passwerk/tree"
 
@@ -12,14 +11,11 @@ import (
 )
 
 type PasswerkTMSP struct {
-	mu  *sync.Mutex
 	ptw tre.PwkTreeWriter
 }
 
-func NewPasswerkApplication(mu *sync.Mutex, ptw tre.PwkTreeWriter) *PasswerkTMSP {
-
+func NewPasswerkApplication(ptw tre.PwkTreeWriter) *PasswerkTMSP {
 	app := &PasswerkTMSP{
-		mu:  mu,
 		ptw: ptw,
 	}
 	return app
@@ -56,10 +52,6 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 		parts[4], //mapCIdNameEncrypted
 	)
 
-	//lock and perform main appendTx functionality
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
 	switch operationalOption {
 	case "writing":
 		err := app.ptw.NewRecord(parts[5]) //parts[6] is cPasswordEncrypted
@@ -89,10 +81,6 @@ func (app *PasswerkTMSP) AppendTx(tx []byte) types.Result {
 //     from multiple uses on the same system.
 func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 
-	//lock and perform main checkTx funtionality
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
 	//seperate the tx into all the parts to be written
 	parts := strings.Split(string(tx), "/")
 
@@ -115,26 +103,15 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 		}
 		//TODO add proof-of-valid-transaction verification
 
-		usernameHashed := parts[2]
-		cIdNameHashed := parts[3]
-		cIdNameEncrypted := parts[4]
+		app.ptw.SetVariables(parts[2], parts[3], parts[4])
 
-		app.ptw.SetVariables(usernameHashed, cIdNameHashed, cIdNameEncrypted)
-
-		subTree, err := app.ptw.LoadSubTree()
+		recExists, err := app.ptw.VerifyRecordExists()
 
 		if err != nil {
-			return badReturn("bad sub tree")
+			return badReturn(err.Error())
 		}
 
-		treeRecordExists := subTree.Has(tre.GetRecordKey(usernameHashed, cIdNameHashed))
-		_, mapValues, mapExists := subTree.Get(tre.GetCIdListKey(usernameHashed))
-		containsCIdNameEncrypted := strings.Contains(string(mapValues), "/"+cIdNameEncrypted+"/")
-
-		//check to make sure the record exists to be deleted
-		if !treeRecordExists ||
-			!mapExists ||
-			!containsCIdNameEncrypted {
+		if !recExists {
 			return badReturn("Record to delete does not exist")
 		}
 
@@ -147,12 +124,9 @@ func (app *PasswerkTMSP) CheckTx(tx []byte) types.Result {
 
 //return the hash of the merkle tree, use locks
 func (app *PasswerkTMSP) Commit() types.Result {
-	app.mu.Lock()
-	defer app.mu.Unlock()
 
-	app.ptw.SaveMommaTree()
 	//save the momma-merkle state in the db for persistence
-	//app.stateDB.Set([]byte(cmn.DBKeyMerkleHash), app.state.Save())
+	app.ptw.SaveMommaTree()
 
 	return types.NewResultOK(app.ptw.Hash(), "")
 }

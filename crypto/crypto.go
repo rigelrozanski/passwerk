@@ -88,7 +88,7 @@ func decryptNaCl(key *[32]byte, ciphertext []byte) (plaintext []byte, err error)
 
 	plaintext, success := box.OpenAfterPrecomputation([]byte(""), cipherMessage, &nonce, key)
 
-	if success == false {
+	if !success {
 		err = errors.New("bad decryption")
 		return
 	}

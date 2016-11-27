@@ -3,11 +3,13 @@ package tree
 import (
 	"errors"
 	"strings"
+	"sync"
 
 	cry "github.com/rigelrozanski/passwerk/crypto"
 )
 
 type PwkTreeReader struct {
+	mtx  *sync.Mutex
 	tree TreeReading
 	rVar ReaderVariables
 }
@@ -20,6 +22,7 @@ type ReaderVariables struct {
 }
 
 func NewPwkTreeReader(
+	mtx *sync.Mutex,
 	tree TreeReading,
 	usernameHashed string,
 	cIdNameUnencrypted string,
@@ -34,6 +37,7 @@ func NewPwkTreeReader(
 	}
 
 	return PwkTreeReader{
+		mtx:  mtx,
 		tree: tree,
 		rVar: rVar,
 	}
@@ -58,6 +62,7 @@ func (ptr *PwkTreeReader) SetVariables(
 ////////////////////////////////////////////
 
 func (ptr *PwkTreeReader) loadSubTree() (TreeReading, error) {
+
 	subTree, err := ptr.tree.LoadSubTree(ptr.rVar.usernameHashed)
 
 	var outTree TreeReading = subTree
@@ -71,12 +76,15 @@ func (ptr *PwkTreeReader) loadSubTree() (TreeReading, error) {
 //authenticate the master password if
 func (ptr *PwkTreeReader) AuthMasterPassword() bool {
 
+	ptr.mtx.Lock()
+	defer ptr.mtx.Unlock()
+
 	//first check if the username exists
 	if !ptr.tree.Has(getMapKey(ptr.rVar.usernameHashed)) {
 		return false
 	}
 
-	_, err := ptr.RetrieveCIdNames()
+	_, err := ptr.retrieveCIdNames()
 	if err != nil {
 		return false
 	}
@@ -85,6 +93,14 @@ func (ptr *PwkTreeReader) AuthMasterPassword() bool {
 
 //retrieve and decrypt the list of saved passwords under and account
 func (ptr *PwkTreeReader) RetrieveCIdNames() (cIdNames []string, err error) {
+
+	ptr.mtx.Lock()
+	defer ptr.mtx.Unlock()
+
+	return ptr.retrieveCIdNames()
+}
+
+func (ptr *PwkTreeReader) retrieveCIdNames() (cIdNames []string, err error) {
 
 	var subTree TreeReading
 	subTree, err = ptr.loadSubTree()
@@ -118,6 +134,9 @@ func (ptr *PwkTreeReader) RetrieveCIdNames() (cIdNames []string, err error) {
 //retrieve and decrypt a saved password given an account and id information
 func (ptr *PwkTreeReader) RetrieveCPassword() (cPassword string, err error) {
 
+	ptr.mtx.Lock()
+	defer ptr.mtx.Unlock()
+
 	var subTree TreeReading
 	subTree, err = ptr.loadSubTree()
 
@@ -139,6 +158,9 @@ func (ptr *PwkTreeReader) RetrieveCPassword() (cPassword string, err error) {
 // retrieve the original encrypted id text, used for deleting from the stored list of ids for a user
 func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted string, err error) {
 
+	ptr.mtx.Lock()
+	defer ptr.mtx.Unlock()
+
 	var subTree TreeReading
 	subTree, err = ptr.loadSubTree()
 
@@ -149,7 +171,7 @@ func (ptr *PwkTreeReader) GetCIdListEncryptedCIdName() (cIdNameOrigEncrypted str
 	cIdListKey := GetCIdListKey(ptr.rVar.usernameHashed)
 	_, cIdListValues, exists := subTree.Get(cIdListKey)
 
-	if exists == false {
+	if !exists {
 		err = errors.New("sub tree doesn't exist")
 		return
 	}

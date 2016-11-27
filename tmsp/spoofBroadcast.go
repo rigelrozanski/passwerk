@@ -3,15 +3,14 @@ package tmsp
 
 import (
 	"errors"
-	"sync"
 
 	tre "github.com/rigelrozanski/passwerk/tree"
 )
 
 //function used in UI tests, spoofs functionality of broadcast tx which tendermint normally performs during operation
-func TestspoofBroadcast(tx2SpoofBroadcast []byte, mu *sync.Mutex, ptw tre.PwkTreeWriter) error {
+func TestspoofBroadcast(tx2SpoofBroadcast []byte, ptw tre.PwkTreeWriter) error {
 
-	app := NewPasswerkApplication(mu, ptw)
+	app := NewPasswerkApplication(ptw)
 
 	checkTxResult := app.CheckTx(tx2SpoofBroadcast)
 

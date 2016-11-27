@@ -6,7 +6,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/rigelrozanski/passwerk/tmsp"
@@ -31,13 +30,8 @@ func TestUi(t *testing.T) {
 		}
 	}()
 
-	//lock for data access, unused for testing purposes
-	muTest := new(sync.Mutex)
-	muTest.Lock()
-
 	//init a testing app stuct for the UI
 	app := &UIApp{
-		mu:      muTest,
 		ptr:     ptr,
 		portUI:  "8080",
 		testing: true,
@@ -73,9 +67,7 @@ func TestUi(t *testing.T) {
 
 				urlStringBytes := []byte(*tx2SpoofBroadcast[i])
 
-				muTest.Unlock()
-				tmsp.TestspoofBroadcast(urlStringBytes, muTest, ptw)
-				muTest.Lock()
+				tmsp.TestspoofBroadcast(urlStringBytes, ptw)
 			}
 		}
 
