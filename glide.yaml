@@ -1,0 +1,14 @@
+package: github.com/rigelrozanski/passwerk
+import:
+- package: github.com/spf13/cobra
+- package: github.com/tendermint/go-common
+- package: github.com/tendermint/go-db
+- package: github.com/tendermint/go-merkle
+- package: github.com/tendermint/tmsp
+  subpackages:
+  - server
+  - types
+- package: golang.org/x/crypto
+  subpackages:
+  - nacl/box
+  - sha3

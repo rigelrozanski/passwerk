@@ -2,6 +2,7 @@ package tree
 
 import (
 	"errors"
+	//"path"
 
 	cmn "github.com/rigelrozanski/passwerk/common"
 
@@ -46,17 +47,20 @@ type PwkMerkleTree struct {
 	tree      merkle.Tree
 	cacheSize int
 	db        dbm.DB
+	dBName    string
 }
 
 func NewPwkMerkleTree(
 	tree merkle.Tree,
 	cacheSize int,
-	db dbm.DB) PwkMerkleTree {
+	db dbm.DB,
+	dBName string) PwkMerkleTree {
 
 	return PwkMerkleTree{
 		tree:      tree,
 		cacheSize: cacheSize,
 		db:        db,
+		dBName:    dBName,
 	}
 }
 
@@ -121,6 +125,10 @@ func (tr PwkMerkleTree) Copy() merkle.Tree {
 func (tr PwkMerkleTree) LoadSubTree(UsernameHashed string) (PwkMerkleTree, error) {
 
 	subTree := merkle.NewIAVLTree(tr.cacheSize, tr.db)
+
+	// for WAL version of go-merkle
+	//subTree := merkle.NewIAVLTree(tr.cacheSize, path.Join(tr.dBName, cmn.SubTreeWalSubDir), tr.db)
+
 	_, treeOutHash2Load, exists := tr.tree.Get(getMapKey(UsernameHashed))
 	if !exists {
 		return tr, errors.New("sub tree doesn't exist") //return the root tree
@@ -141,6 +149,10 @@ func (tr PwkMerkleTree) SaveSubTree(UsernameHashed string, subTree PwkMerkleTree
 func (tr PwkMerkleTree) NewSubTree(UsernameHashed string) PwkMerkleTree {
 
 	subTree := merkle.NewIAVLTree(tr.cacheSize, tr.db)
+
+	//for WAL version of go-merkle
+	//subTree := merkle.NewIAVLTree(tr.cacheSize, path.Join(tr.dBName, cmn.SubTreeWalSubDir), tr.db)
+
 	tr.tree.Set(getMapKey(UsernameHashed), subTree.Save())
 
 	return PwkMerkleTree{

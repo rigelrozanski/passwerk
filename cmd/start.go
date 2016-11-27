@@ -29,9 +29,8 @@ func init() {
 	//initilize local flags
 	startCmd.Flags().IntVarP(&cacheSize, "cacheSize", "c", 0, "Cache size for momma merkle trees and child trees (default 0)")
 	startCmd.Flags().StringVarP(&portUI, "portUI", "p", "8080", "local port for the passwerk application")
-	startCmd.Flags().StringVarP(&dBPath, "dBPath", "a", "pwkDB", "relative folder name for the storing the passwerk database(s)")
 	startCmd.Flags().StringVarP(&dBName, "dBName", "n", "pwkDB", "name of the passwerk database being stored")
-	//startCmd.Flags().BoolVarP(&newDB, "newDb", "n", false, "force generate a new database when inilitizing")
+
 	RootCmd.AddCommand(startCmd)
 }
 
@@ -49,7 +48,7 @@ func startRun(cmd *cobra.Command, args []string) {
 	dBKeyMerkleHash := []byte(cmn.DBKeyMerkleHash)
 
 	//setup the persistent merkle tree to be used by both the UI and TMSP
-	oldDBNotPresent, _ := cmn.IsDirEmpty(path.Join(dBPath, dBName) + ".db")
+	oldDBNotPresent, _ := cmn.IsDirEmpty(path.Join(dBName, dBName) + ".db")
 
 	if oldDBNotPresent {
 		fmt.Println("no existing db, creating new db")
@@ -58,10 +57,14 @@ func startRun(cmd *cobra.Command, args []string) {
 	}
 
 	//open the db, if the db doesn't exist it will be created
-	pwkDB := dbm.NewDB(dBName, dbm.DBBackendLevelDB, dBPath)
+	pwkDB := dbm.NewDB(dBName, dbm.DBBackendLevelDB, dBName)
 
 	var state merkle.Tree
+
 	state = merkle.NewIAVLTree(cacheSize, pwkDB)
+
+	//for WAL version of go-merkle
+	//state = merkle.NewIAVLTree(cacheSize, path.Join(dBName, cmn.WalSubDir), pwkDB)
 
 	//either load, or set and load the merkle state
 	if oldDBNotPresent {
@@ -71,7 +74,7 @@ func startRun(cmd *cobra.Command, args []string) {
 
 	//define the pwkTree which will be fed into UI and TMSP
 	//pwkTree will be limited to read only when fed into the UI
-	pwkTree := tre.NewPwkMerkleTree(state, cacheSize, pwkDB)
+	pwkTree := tre.NewPwkMerkleTree(state, cacheSize, pwkDB, dBName)
 
 	var pR tre.TreeReading = pwkTree
 	var pW tre.TreeWriting = pwkTree

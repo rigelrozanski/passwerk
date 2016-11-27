@@ -26,7 +26,7 @@ func init() {
 func clearDBRun(cmd *cobra.Command, args []string) {
 	fmt.Println("Clearing the DB...")
 
-	err := cmn.DeleteDir(dBPath + "/" + dBName + ".db")
+	err := cmn.DeleteDir(dBName)
 
 	if err != nil {
 		fmt.Println(err.Error())

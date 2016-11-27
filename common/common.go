@@ -6,8 +6,9 @@ import (
 	"os"
 )
 
-// TODO: use this, dont pass it around
 const DBKeyMerkleHash = "mommaHash"
+const WalSubDir = "mommaWalDir"
+const SubTreeWalSubDir = "babyWalDir"
 
 func IsDirEmpty(name string) (bool, error) {
 	f, err := os.Open(name)
