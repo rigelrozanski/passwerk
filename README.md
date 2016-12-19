@@ -81,4 +81,4 @@ All tests can be executed from the passwerk directory with `go test ./...`
 
 ### License
 
-Cobra is released under the Apache 2.0 license.
+Passwerk is released under the Apache 2.0 license.
